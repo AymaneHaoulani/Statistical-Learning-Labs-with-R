@@ -1,0 +1,740 @@
+---
+documentclass: article
+papersize: a4
+geometry: top=1.5cm, bottom=2cm, left=1.5cm, right=1.5cm
+fontsize: 11pt
+output:
+  html_document:
+    toc: no
+    df_print: paged
+  pdf_document:
+    extra_dependencies: enumitem
+    number_sections: yes
+    toc: no
+    keep_tex: no
+    includes:
+      in_header: TP4-preamble.tex
+      before_body: TP4-header.tex
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+<!-- see help at https://bookdown.org/yihui/rmarkdown-cookbook/latex-output.html -->
+
+```{r setup, include=FALSE, message=FALSE}
+#see full list >knitr::opts_chunk$get()
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message=FALSE ,fig.align="center")
+#remove.packages("rlang")
+
+#install.packages("rlang")
+```
+## Younes Essafouri, Aymane Haoulani, Aymane El-Achab
+
+
+## Pre-processing
+
+## 1. Import the data
+
+Let's import the training and testing data sets first.
+```{r}
+  # Import the data sets
+training_data <- read.csv("train.csv")
+testing_data <- read.csv("test.csv")
+testing_data$Survived <- rep(NA,nrow(testing_data))
+whole_dataset <- rbind(training_data,testing_data)
+
+  # Drop ColumnId
+columns_to_drop <- c("PassengerId")
+predictors <- whole_dataset[,-which(names(training_data) %in% columns_to_drop)] 
+#predictors
+
+```
+
+## 2. Managing categorical variables
+
+$\textbf{Name}$
+
+There's clearly little to no information that we can draw from someone's complete name. Nevertheless, it's worth considering his title since it may be correlated to his social/marital status and/or age. And in order to do so, it is necessary to work with regular expressions:
+
+```{r}
+# Method that extracts the title
+extract_title <- function(name) {
+  title <- gsub("^.*?, (\\w+)\\..*$", "\\1", name)
+  return(title)
+}
+
+# Apply the function to each name in the 'Name' column
+titles <- sapply(predictors$Name, extract_title)
+
+# Add a new column 'Title' to the data frame
+predictors$Title <- titles
+# Removal of the 'Name' column
+predictors <- predictors[,-which(names(predictors) == "Name")]
+```
+
+Let's see the titles of our data set using the table method
+
+```{r}
+# Uncomment to display the result
+#sort(table(predictors$Title))
+```
+
+It's clear that 'Mr', 'Miss', 'Mrs' and 'Master' are the most common titles. Therefore, these are the ones that will be interesting to us (remaining titles will be associated to an 'Other' state)
+
+```{r}
+mr_synonyms <- which(predictors$Title %in% c("Capt", "Col", "Major", "Sir","Don","Dr"))
+predictors$Title[mr_synonyms]<- rep("Mr",length(mr_synonyms))
+# Find rows where Title is not among specified titles
+rows_with_uncommon_titles <- which(!(predictors$Title %in% c("Mr", "Miss", "Mrs", "Master")))
+predictors[rows_with_uncommon_titles,c("Title")] <- "Other"
+predictors
+```
+Final tweak: 
+
+```{r}
+# Categorical data ritual
+predictors$Title <- factor(predictors$Title)
+```
+
+
+$\textbf{Ticket}$
+
+Now,we need to check whether there is important information that we can draw from the ticket. Otherwise, this column needs to be dropped.
+
+Let's explore first the potential patterns that we can draw from our Ticket column using the table method:
+
+```{r}
+# This line was commented since the result was too long
+#sort(table(predictors$Ticket))
+```
+
+Let's dive into the information of a certain group that shares the same ticket : 
+
+```{r}
+predictors[which(predictors$Ticket=="CA. 2343"),]
+```
+
+We observe that there isn't much additional information that we can draw from the Ticket column since people sharing the same ticket share the same Fare as well.
+
+```{r}
+predictors <- predictors[,-which(names(predictors)=="Ticket")]
+```
+
+$\textbf{Cabin}$
+
+The available data regarding the Cabin of the different passengers is very sparse. So there may have been a problem while collecting this data. But this lack of information may be an information itself. What if there wasn't a particular cabin for other passengers? Maybe they were all sharing a wide but dense common area of the ship? Who knows?
+
+As a first step, we need to extract the cabin letter and the seat of each one of the passengers that have their cabin data available.
+
+```{r}
+extract_cabin_info <- function(cabin_data) {
+  # Define regular expression pattern to match cabin letter and seat
+  pattern <- "([A-Za-z])(\\d+)"
+  
+  # Apply regex pattern to cabin data
+  matches <- regexec(pattern, cabin_data)
+  
+  # Extract cabin letter and seat
+  cabin_letter <- regmatches(cabin_data, matches)[[1]][2]
+  seat <- regmatches(cabin_data, matches)[[1]][3]
+  
+  # Return cabin letter and seat
+  return(list(cabin_letter = cabin_letter, seat = seat))
+}
+```
+
+
+```{r}
+cabin_letter <- matrix(nrow = nrow(predictors),ncol = 1)
+cabin_number <- matrix(nrow = nrow(predictors),ncol = 1)
+for (i in 1:nrow(predictors)){
+  if(predictors$Cabin[i]!=""){
+    cabin_info <- extract_cabin_info(predictors$Cabin[i])
+    cabin_letter[i] <- cabin_info$cabin_letter
+    cabin_number[i] <- cabin_info$seat
+  }
+}
+predictors$CabinLetter <- cabin_letter
+predictors$CabinNumber <- cabin_number
+```
+
+
+Obviously there's nothing that we can draw from the seats data as it is. Therefore, we propose to divide each cabin into a "front" and a "back" area based on the median value of the seats regarding each cabin. 
+
+This seems like a good idea on paper, but due to the lack of data points we decided to preserve the cabin letter column as well for now in order to compare both approaches.
+
+
+```{r}
+cabin_letters <- unique(predictors$CabinLetter[which(!is.na(predictors$CabinLetter)),])
+
+for (i in 1:length(cabin_letters)){
+  current_letter <- cabin_letters[i]
+  seats_indices <- which(predictors$CabinLetter==current_letter)
+  seats <- as.numeric(cabin_number[seats_indices])
+  median_seat <- median(seats)
+   
+  # Substitute seat number with "front" or "back" based on median value
+  predictors$CabinNumber[seats_indices] <- ifelse(seats <= median_seat, "front", "back")
+}
+
+# Re-organize the data set
+  # Add the new CabinInfo column to our data set
+predictors$CabinInfo <- paste0(predictors$CabinLetter,predictors$CabinNumber)
+  # Deal with unavailable data
+predictors$CabinInfo[which(predictors$CabinInfo=="NANA")] <- rep("Other",length(which(predictors$CabinInfo=="NANA")))
+predictors$CabinLetter[which(is.na(predictors$CabinLetter))] <- rep("Other",length(which(is.na(predictors$CabinLetter))))
+  # Eliminate CabinNumber and Cabin columns from the data set
+predictors <- predictors[,-which(names(predictors)=="CabinNumber")]
+predictors <- predictors[,-which(names(predictors)=="Cabin")]
+
+```
+
+```{r}
+# Change the class so that the columns will be considered as categorical
+predictors$CabinInfo <- factor(predictors$CabinInfo)
+predictors$CabinLetter <- factor(predictors$CabinLetter)
+```
+
+
+$\textbf{Pclass}$,$\textbf{Sex}$ and $\textbf{Embarked}$
+
+Same procedure:
+```{r}
+predictors$Pclass <- factor(predictors$Pclass)
+predictors$Sex <- factor(predictors$Sex)
+predictors$Embarked <- factor(predictors$Embarked)
+```
+
+
+$\textbf{Parch}$ and $\textbf{SibSp}$
+
+The Parch and SibSp variables as they are seem a little bit ambiguous. Therefore, we decided to agregate them into something that would make more sense. In this logic, we decided to explore how families on board affect the survival of each other.
+Let's explore how the number of individuals of a family/group affect the chance of survival:
+
+```{r}
+  # Calculate family size
+familySize<-training_data$Parch+training_data$SibSp+1
+  # Combine family size with survival status
+family_survival<-data.frame(familySize,Survived=training_data$Survived)
+  # Calculate survival rate for each family size category
+survival_rates<-aggregate(Survived~familySize,data=family_survival,FUN=function(x) sum(x)/length(x))
+  # Plot survival rate for each family size
+barplot(survival_rates$Survived, names.arg=survival_rates$familySize,xlab = "Family Size", ylab = "Survival Rate", main = "Survival Rate by Family Size")
+
+```
+We can see that the survival rate increases with the number of individuals of a family/group while this number doesn't exceed 4. Whereas in the oposite case, it's the other way around. 
+
+Therefore, we can naturally classify the families into three categories : 
+* Those traveling alone. 
+* Group of less than 5 people. (Medium size group)
+* Families exceeding 5 members. (Large size group)
+
+This variable will be called 'GroupType'.
+
+```{r}
+  # Build the desired column
+groupSize<-predictors$Parch+predictors$SibSp+1
+predictors$GroupType[groupSize==1]<-'Alone'
+predictors$GroupType[groupSize<5 & groupSize!=1]<-'Medium'
+predictors$GroupType[groupSize>4]<-'Large'
+  # Declare it as a categorical variable
+predictors$GroupType <- as.numeric(factor(predictors$GroupType))
+```
+
+
+
+## 3. Dealing with missing values
+
+We observe that our training dataset lacks some values regarding particularly the Age and Cabin columns. And in order to resolve this situation, many strategies remain possible:
+
+-   Dropping data points with Missing Values (DMV)
+
+```{r}
+rows_to_drop <- which(is.na(predictors[,c("Age")]))
+predictors_DMV <- predictors[-rows_to_drop,]
+proportion_of_missing_data <- 1-nrow(predictors_DMV)/nrow(predictors)
+
+cat("The proportion of missing data  is : ",proportion_of_missing_data)
+```
+
+It is clear that dropping the non-complete data points isn't the way to go since we will be losing valuable information (\~20% of the data). Let's explore now other approaches:
+
+-   Filling the Missing Values with an arbitrary value (Mean/Median):
+
+* Age variable (20% of missing values)
+```{r}
+predictors_FMVMean <- predictors
+predictors_FMVMedian <- predictors
+  # Replace the missing values using the mean value
+value_to_replace_with <- mean(predictors_FMVMean[-rows_to_drop,c("Age")])
+predictors_FMVMean[rows_to_drop,c("Age")] <- rep(value_to_replace_with,times=length(rows_to_drop))
+  # Use the median instead
+value_to_replace_with <- median(predictors_FMVMean[-rows_to_drop,c("Age")])
+predictors_FMVMedian[rows_to_drop,c("Age")] <- rep(value_to_replace_with,times=length(rows_to_drop))
+```
+
+*Fare variable (a single data point)
+
+Since we're talking about a single missing data point, there's no need to adopt some fancy approach to complete our data set, it would be simpler to conduct the analysis ourselves.
+We observe that the concerned individual has a Pclass of 3 and is traveling alone. Therefore, a good estimation of the fare he payed would be nothing but the median value.
+
+```{r}
+# Filter the dataset based on the specified conditions and extract the "Fare" column
+a<-which(is.na(predictors$Fare))
+fare_subset <- predictors$Fare[which((predictors$Pclass == 3) & 
+                                       (predictors$SibSp == 0) & 
+                                       (predictors$Parch == 0))]
+
+# Calculate the median of the extracted "Fare" column
+fare_median <- median(fare_subset, na.rm = TRUE)
+
+# Replace missing values in the "Fare" column with the calculated median
+predictors[which(is.na(predictors$Fare)), "Fare"] <- fare_median
+
+```
+
+
+-   Trying to predict the age variable following a slightly more sophisticated approach:
+
+In order to choose the best way to predict the missing "Age" values, we need first to investigate the correlation between the Age variable and the other columns.
+
+```{r}
+ageCorrelationAnalysis <- pairs(predictors[-rows_to_drop,c("Age","Pclass", "SibSp","Fare","Parch","Title","CabinInfo","CabinLetter","GroupType")])
+```
+
+It seems that there is a potential correlation between the Age and some of the other variables, let's further investigate this observation using a cross-validation based approach:
+
+```{r}
+compute_error_using_CV <- function(training_data,shuffled_indices,useMean,useMedian){
+  
+  # We choose the number of folds
+  num_folds <- 6
+  step <- as.integer(nrow(training_data)/num_folds)
+
+  # Initialization of the vector to store testing errors
+testing_errors <- numeric(num_folds)
+
+  # Perform cross-validation
+  for (fold in 1:num_folds) {
+    
+    # Create indices for training and testing data for this fold
+    test_indices <- shuffled_indices[fold:(fold+step)]
+    train_indices <- setdiff(1:nrow(training_data), test_indices)  
+  
+    # Split the data into training and testing sets
+    train_data <- training_data[train_indices, ]
+    test_data <- training_data[test_indices, ]
+
+  if(useMean){
+    predictions <- mean(train_data$Age)
+    
+  }
+  else if(useMedian){
+    predictions <- median(train_data$Age)
+  }
+  else{
+    m <- glm(Age~.,data=train_data)
+
+    # Make predictions on the testing data
+    predictions <- predict(m, newdata=test_data,type="response")
+  }
+  
+  # Compute testing error (MSE)
+  testing_errors[fold] <- mean((test_data$Age - predictions)^2)
+  }
+  return(testing_errors)
+  
+}
+```
+
+```{r}
+# Definition of different possible combinations
+age_training_data1 <- predictors[-rows_to_drop,c("Age","SibSp","Parch")]
+age_training_data2 <- predictors[-rows_to_drop,c("Age","SibSp","Parch","Fare")]
+age_training_data3 <- predictors[-rows_to_drop,c("Age","SibSp")]
+age_training_data4 <- predictors[-rows_to_drop,c("Age","SibSp","Fare")]
+age_training_data5 <- predictors[-rows_to_drop,c("Age","Fare")]
+age_training_data6 <- predictors[-rows_to_drop,c("Age","Fare","Title")]
+age_training_data7 <- predictors[-rows_to_drop,c("Age","Title")]
+age_training_data8 <- predictors[-rows_to_drop,c("Age","SibSp","Fare","Title")]
+age_training_data9 <- predictors[-rows_to_drop,c("Age","SibSp","Fare","Title","Parch")]
+age_training_data10 <- predictors[-rows_to_drop,c("Age","SibSp","Fare","Title","Parch","CabinInfo")]
+age_training_data11 <- predictors[-rows_to_drop,c("Age","Fare","Title","CabinInfo")]
+age_training_data12 <- predictors[-rows_to_drop,c("Age","Fare","Title","CabinInfo","GroupType","Pclass")]
+
+# Rearrange the data points
+shuffled_indices <- sample(1:nrow(training_data), replace = FALSE)
+
+# Results display
+cat("The MSE of the different combinations is : \n")
+cat("Mean value approach : ",mean(compute_error_using_CV(age_training_data3,shuffled_indices,TRUE,FALSE)),"\n")
+cat("Median value approach : ",mean(compute_error_using_CV(age_training_data3,shuffled_indices,FALSE,TRUE)),"\n")
+cat("Age,SibSp : ",mean(compute_error_using_CV(age_training_data3,shuffled_indices,FALSE,FALSE)),"\n")
+cat("Age,Fare : ",mean(compute_error_using_CV(age_training_data5,shuffled_indices,FALSE,FALSE)),"\n")
+cat("Age,Title : ",mean(compute_error_using_CV(age_training_data7,shuffled_indices,FALSE,FALSE)),"\n")
+cat("Age,Fare,Title : ",mean(compute_error_using_CV(age_training_data6,shuffled_indices,FALSE,FALSE)),"\n")
+cat("Age,SibSp,Parch : ",mean(compute_error_using_CV(age_training_data1,shuffled_indices,FALSE,FALSE)),"\n")
+cat("Age,SibSp,Fare : ",mean(compute_error_using_CV(age_training_data4,shuffled_indices,FALSE,FALSE)),"\n")
+cat("Age,SibSp,Fare,Title : ",mean(compute_error_using_CV(age_training_data8,shuffled_indices,FALSE,FALSE)),"\n")
+cat("Age,SibSp,Parch,Fare : ",mean(compute_error_using_CV(age_training_data2,shuffled_indices,FALSE,FALSE)),"\n")
+cat("Age,SibSp,Parch,Fare,Title : ",mean(compute_error_using_CV(age_training_data9,shuffled_indices,FALSE,FALSE)),"\n")
+cat("Age,SibSp,Parch,Fare,Title,CabinInfo : ",mean(compute_error_using_CV(age_training_data10,shuffled_indices,FALSE,FALSE)),"\n")
+cat("Age,Fare,Title,CabinInfo : ",mean(compute_error_using_CV(age_training_data11,shuffled_indices,FALSE,FALSE)),"\n")
+cat("Age,Fare,Title,CabinInfo,GroupType,Pclass : ",mean(compute_error_using_CV(age_training_data12,shuffled_indices,FALSE,FALSE)),"\n")
+
+```
+Indeed and as expected, Title is a great proxy to use in order to estimate the age variable. Therefore, extracting this information from the full name of the passengers was certainly the best way to go.
+
+It is clear now that the optimal way to fill in the missing "Age" values without droping the corresponding rows is to perform the following logistic regression : Age\~Fare+Title+CabinInfo+GroupType+Pclass.
+
+It is also worth mentioning that this method stays well ahead of a simple imputation using mean or median values.
+
+```{r}
+# In this case, the training data will be the rows that have the Age column filled whereas we use those to predict as the testing set (Although we can't quantify the testing error, we tried earlier to estimate it using a cross-validation based approach on the training set) 
+ageRegressionModel <- glm(Age~.,data=predictors[-rows_to_drop,c("Age","CabinInfo","Fare","Title","GroupType","Pclass")])
+agePredictions <- predict(ageRegressionModel,newdata = predictors[rows_to_drop,c("CabinInfo","Fare","Title","GroupType","Pclass")],type='response')
+predictors[rows_to_drop,c("Age")] <- agePredictions
+```
+
+Since we know that the Master title generally refers to young kids (<13), we fix our estimations if they do not respect this condition 
+
+```{r}
+predictors$Age <- ifelse(predictors$Title=='Master' & predictors$Age>13, 13,predictors$Age) 
+```
+
+
+## Model selection
+
+Since there isn't really a mathematical pattern that we can draw from our data, the algorithms that will likely perform better are the ones that make little assumptions about the structure of the data points.
+For those reasons, we decided to explore Logistic Regression, Random Forest and XGBoost methods.
+
+```{r}
+#install.packages("xgboost")
+#install.packages("randomForest")
+#install.packages("pROC")
+
+library(xgboost)
+library(randomForest)
+library(pROC)
+```
+
+Let's first define the helper functions that given a training and a testing set return the prediction error:
+
+* Logistic Regression:
+
+```{r}
+logistic_regression <- function(train,test){
+  # Model training
+  logregModel <- glm(Survived~.,data=train,family="binomial")
+  # Make predictions on the testing data
+  logregProb <- predict(logregModel, newdata=test[,-which(names(train)=="Survived")],type="response")
+  logregPredictions <- as.integer(logregProb>0.5)
+  # Compute the error
+  error<- mean((test$Survived != logregPredictions))
+  return(list(error=error,predictions=logregPredictions,prob=logregProb))
+}
+```
+
+* Random Forest:
+
+```{r}
+random_forest <- function(train,test,nb_tree){
+  # Model training
+  randomForestModel <- randomForest(Survived~.,data=train,ntree=nb_tree)
+  # Make predictions on the testing data
+  randomForestPredictions<-predict(randomForestModel, newdata=test[,-which(names(train)=="Survived")],type="response")
+  
+  randomForestPredictions <- as.integer(randomForestPredictions>0.48)
+  
+  # Compute the error
+  error<- mean((test$Survived != randomForestPredictions))
+  return(list(error=error,predictions=randomForestPredictions))
+}
+```
+
+* XGBoost: 
+
+```{r}
+xg_Boost <- function(train,test){
+  
+  xgb_data <- xgb.DMatrix(data = data.matrix(train[,-which(names(train)=="Survived")]),label=train$Survived)
+  xgb_model <- xgboost::xgboost(data = xgb_data, nround = 100, objective = "binary:logistic",verbose = FALSE)
+  # Model training
+  # Make predictions on the testing data
+  xgBoostPredictions <- predict(xgb_model, data.matrix(test[,-which(names(test) == "Survived")]))
+  xgBoostPredictions <- as.integer(xgBoostPredictions>0.5)
+  # Compute the error
+  error<- mean((test$Survived != xgBoostPredictions))
+  return(error)
+}
+```
+
+
+Since we will be performing a benchmark of the selected methods on our data set, it is important to pay attention to the bias and variance behind each one of the results that we will be getting from our experiments.
+Therefore, and in order to get a fair estimation of the prediction error, we decided to perform cross validation on our data set where each time a fold plays the role of the validation set.
+Nevertheless, and since the rows of the training & validation sets are randomly selected, we decided to re-run the process a number of times in order to get an idea about the variance produced by each approach and be able finally to fairly compare the different algorithms.
+
+
+```{r}
+models_comparator <- function(training_data){
+  
+  # Setting of the number of times we'll be re-running the benchmark
+  nb_iter <- 30
+  
+  # Definition of the error matrix that will hold the prediction errors
+  errors_matrix <-  matrix(NA, nrow = nb_iter, ncol = 3)
+  colnames(errors_matrix) <- c("LogReg", "RandomForest", "XGBoost")
+  
+  # We choose the number of folds
+  num_folds <- 7
+  step <- as.integer(nrow(training_data)/num_folds)
+
+  # Initialization of the temporary vectors in order to store the testing errors after each CV iteration
+  logreg_errors <- numeric(num_folds)
+  randomForest_errors <- numeric(num_folds)
+  xgBoost_errors <- numeric(num_folds)
+
+  
+  for (i in 1:nb_iter){
+    
+    shuffled_indices <- sample(1:nrow(training_data), replace = FALSE)
+  
+    # Perform cross-validation
+    for (fold in 1:num_folds) {
+      
+      # Create indices for training and testing data for this fold
+      test_indices <- shuffled_indices[fold:(fold+step)]
+      train_indices <- setdiff(1:nrow(training_data), test_indices)
+  
+      # Split the data into training and testing sets
+      train_data <- training_data[train_indices, ]
+      test_data <- training_data[test_indices, ]
+
+      # Compute testing error
+        # Logistic regression
+      logreg_errors[fold] <- logistic_regression(train_data,test_data)$error
+        # Random Forest
+      randomForest_errors[fold] <- random_forest(train_data,test_data,120)$error
+        # XGBoost
+      xgBoost_errors[fold] <- xg_Boost(train_data,test_data)
+      
+      
+      #knn_model <- knn(train = train_data[,-which(names(train_data)=="Survived")],
+#                      test = test_data[, -which(names(test_data)=="Survived")],
+#                      cl = train_data$Survived,
+#                      k = sqrt(nrow(train_data)))
+
+
+      
+      #knn_model <- knn(train_data[,-which(names(train_data)=="Survived")],test_data[, -which(names(test_data)=="Survived")], train_data$Survived, k = 10)
+      
+      #xgBoost_errors[fold] <- mean(test_data$Survived!=knn_model)
+
+    }  
+    
+    errors_matrix[i,"LogReg"] <- mean(logreg_errors)
+    errors_matrix[i,"RandomForest"] <- mean(randomForest_errors)
+    errors_matrix[i,"XGBoost"] <- mean(xgBoost_errors)
+  }
+  
+  return(as.data.frame(errors_matrix))
+  
+}
+```
+
+
+Let's see which algorithm performs best:
+
+```{r}
+boxplot(models_comparator(predictors[1:nrow(training_data),]), main = "Models Benchmarking", xlab = "Classifiers", ylab = "Mean Validation Error")
+```
+
+Conclusions :
+* The best performing algorithm accross all scenarios (multiple combinations of columns) is Random Forest, followed by Logistic Regression staying clearly ahead of XGBoost.
+* There isn't much of a difference between keeping the "CabinLetter" column or "CabinInfo" instead. This may be justified by the fact that few data points had a cabin assigned.
+
+
+## Fine-tuning the model
+
+Now that we know that Random Forest is likely the best algorithm for our binary classification problem, it is necessary to fine-tune the model in order to get even better results.
+
+* Number of trees used:
+
+In order to get a good representation of the tendency that the prediction error follows with the number of trees used, it was necessary to do the following things:
+  + Perform cross-validation to quantify the validation error for each one of the models to compare.
+  + Re-run the algorithm a number of times to take into consideration the variance of the different experiences we'll be conducting.
+
+```{r}
+nb_tree_selector <- function(training_data){
+  
+  nb_iter <- 20
+  
+  # We choose the number of folds
+  num_folds <- 6
+  step <- as.integer(nrow(training_data)/num_folds)
+
+  # Initialization of the temporary vector in order to store the testing errors after each CV iteration
+  randomForest_errors_matrix <-  matrix(NA, nrow = nb_iter, ncol = 25)
+      
+      for (iteration in 1:nb_iter){
+        
+        shuffled_indices <- sample(1:nrow(training_data), replace = FALSE)
+        randomForest_error <- matrix(NA, nrow = num_folds, ncol = 25)
+      
+        # Perform cross-validation
+        for (fold in 1:num_folds) {
+      
+          # Create indices for training and testing data for this fold
+          test_indices <- shuffled_indices[fold:(fold+step)]
+          train_indices <- setdiff(1:nrow(training_data), test_indices)
+  
+          # Split the data into training and testing sets
+          train_data <- training_data[train_indices, ]
+          test_data <- training_data[test_indices, ]
+
+          for (i in 1:25){
+            # Compute the testing error for each model
+            randomForest_error[fold,i] <- random_forest(train_data,test_data,i*10)$error
+          }
+          
+        }
+        # Compute the mean value
+        for (i in 1:25){
+          randomForest_errors_matrix[iteration,i]<- mean(randomForest_error[,i])
+        }
+      }
+        
+  
+  return(as.data.frame(randomForest_errors_matrix))
+  
+}
+```
+
+
+```{r}
+boxplot(nb_tree_selector(predictors[1:nrow(training_data),]), main = "Evolution of the error with the number of trees", xlab = "Number of trees / 10", ylab = "Prediction Error")
+```
+
+It seems like the error is stabilized when the number of trees exceed ~100. 
+We choose for instance 120.
+
+
+* Choice of the optimal threshold
+
+```{r}
+random_forest_roc <- function(train,test,nb_tree){
+  # Model training
+  randomForestModel <- randomForest(Survived~.,data=train,ntree=nb_tree)
+  # Make predictions on the testing data
+  randomForestPredictions<-predict(randomForestModel, newdata=test[,-which(names(train)=="Survived")],type="response")
+  # Define the ROC object (we'll use this later)
+  roc_obj <- roc(test$Survived, randomForestPredictions)
+  
+  return(roc_obj)
+}
+```
+
+```{r}
+# Single time ROC Curve rendering
+
+# Prepating the data
+shuffled_indices <- sample(1:nrow(training_data), replace = FALSE)
+train_indices <- seq(1, ceiling((5/6) * nrow(training_data)), by = 1)
+test_indices <- setdiff(1:nrow(training_data), train_indices)
+
+# Plot of the ROC curve
+roc_obj <- random_forest_roc(predictors[train_indices,],predictors[test_indices,],120)
+results <- coords(roc_obj,"best",best.method="closest.topleft", ret=c("threshold", "accuracy"))
+results
+plot(roc_obj, main = "ROC Curve - RandomForest", print.thres="best", print.thres.best.method="closest.topleft")
+```
+
+In order to get a fair estimation of this value, let's perform cross-validation.
+
+```{r}
+optimal_threshold_estimator <- function(training_data){
+  
+  # Setting of the number of times we'll be re-running the benchmark
+  nb_iter <- 30
+  
+  # We choose the number of folds
+  num_folds <- 7
+  step <- as.integer(nrow(training_data)/num_folds)
+
+  optimal_threshold <- numeric(nb_iter)
+  
+  for (i in 1:nb_iter){
+    
+    shuffled_indices <- sample(1:nrow(training_data), replace = FALSE)
+    folds_optimal_threshold <- numeric(num_folds)
+
+    # Perform cross-validation
+    for (fold in 1:num_folds) {
+      
+      # Create indices for training and testing data for this fold
+      test_indices <- shuffled_indices[fold:(fold+step)]
+      train_indices <- setdiff(1:nrow(training_data), test_indices)
+  
+      # Split the data into training and testing sets
+      train_data <- training_data[train_indices, ]
+      test_data <- training_data[test_indices, ]
+
+      # Compute the optimal threshold
+      randomForest_roc_obj <- random_forest_roc(train_data,test_data,120)
+      folds_optimal_threshold[fold] <- coords(randomForest_roc_obj, "best", best.method="closest.topleft",ret=c("threshold", "accuracy"))$threshold
+  
+    }  
+    
+    optimal_threshold[i] <- mean(folds_optimal_threshold)
+  }
+  return(as.data.frame(mean(optimal_threshold)))
+}
+```
+
+```{r}
+optimal_threshold_estimator(predictors[1:nrow(training_data),])
+```
+
+After running this previous script a number of times, the optimal value computed is often less than 0.5 . This was expected since the majority of individuals inside the data set didn't survive. Which means that these values are a bit biased by this trait. Moreover, we are trying to avoid overfitting so choosing one of the computed values wouldn't be the best way to go.
+Therefore, we will be choosing a threshold of around 0.48.
+
+## Final prediction and Conclusion
+
+
+```{r}
+#which(is.na(predictors[nrow(training_data)+1:nrow(predictors),-which(names(predictors)=="Survived")]))
+#a <- predictors[,-which(names(predictors) %in% c("Parch","SibSp"))]
+#pred <- random_forest(predictors[1:nrow(training_data),],predictors[nrow(training_data)+1:nrow(predictors),],120)
+#a<- predictors
+#a$Survived<-as.numeric(factor(a$Survived))
+pred <- random_forest(predictors[1:nrow(training_data),],predictors[nrow(training_data)+1:nrow(predictors),],120)$predictions
+
+#pred2 <- logistic_regression(a[1:nrow(training_data),],a[nrow(training_data)+1:nrow(predictors),])
+#pred3 <- xg_Boost(predictors[1:nrow(training_data),],predictors[nrow(training_data)+1:nrow(predictors),])
+#combined_pred <- rowMeans(cbind(0.8*pred, 1.2*pred2))
+#combined_pred <- as.integer(combined_pred>0.48)
+
+#combined_pred <- as.numeric((pred + pred2 + pred3) >= 2)
+#as.data.frame(combined_pred)
+
+final_sub <- as.data.frame(cbind(seq(892,1309,by=1),as.data.frame(pred)[1:nrow(testing_data),]))
+colnames(final_sub) <- c("PassengerId","Survived")
+final_sub$Survived <- as.integer(final_sub$Survived)
+
+write.csv(final_sub, "sub0.csv", row.names = FALSE)
+```
+
+As you can see, many things were tried:
+
+* Random Forest
+* Logistic Regression
+* XGBoost
+* Hybrid method (put some or all of the methods into a vote / weighted combination of probabilities...)
+* Different combinations of columns
+
+We tried KNN as well, but we all know that it's main weakness is that it can't handle categorical data since features are not of the same scale. In fact, we tried also to convert the different levels to numeric values but this didn't lead to some great result which is likely due to the fact that we are setting a certain hierarchy between them.
+
+But even with everything that was included in this notebook and other things that were tried as well , the best accuracy we achieved is of 0.78 (Ranking : 3488 / Aymane Haoulani) which is a bit unfortunate looking at the amount of effort and time that was put into this project. But it was definitely a great learning experience dealing with real-world data. And thanks again for this great introduction to Kaggle!
+
+

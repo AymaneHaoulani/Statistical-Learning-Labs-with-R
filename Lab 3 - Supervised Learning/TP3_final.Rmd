@@ -1,0 +1,586 @@
+---
+documentclass: article
+papersize: a4
+geometry: top=1.5cm, bottom=2cm, left=1.5cm, right=1.5cm
+fontsize: 11pt
+output:
+  html_document:
+    toc: no
+    df_print: paged
+  pdf_document:
+    extra_dependencies: enumitem
+    number_sections: yes
+    toc: no
+    keep_tex: no
+    includes:
+      in_header: TP3-preamble.tex
+      before_body: TP3-header.tex
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+<!-- see help at https://bookdown.org/yihui/rmarkdown-cookbook/latex-output.html -->
+
+```{r setup, include=FALSE, message=FALSE}
+#see full list >knitr::opts_chunk$get()
+knitr::opts_chunk$set(echo = TRUE, fig.align="center")
+```
+
+### Younes Essafouri, Aymane Haoulani, Aymane El-achab
+
+Consider a simulated dataset which you will generate as follows:
+
+-- Set the seed of your \code{R} script with \code{set.seed(42)}.
+```{r}
+set.seed(42)
+```
+
+-- For each data point $i$, sample its label from a Bernoulli distribution $y_i \sim \mathcal{B}(p)$, i.e. $y_i = 1$ with probability $p$ and $y_i = 0$ with probability $1-p$. To sample a random variable $B$ from $\mathcal{B}(p)$ you can first sample $U$ from an uniform distribution with function \texttt{runif} from the \code{stats} package and then $B = \mathbf{1}(U < p)$ where $\mathbf{1}(\cdot)$ is an indicator function.
+
+```{r}
+#Method that generate n samples of a random variable that follows B(p)
+generate_bernoulli_sample<- function(p,n){
+  bernoulli_samples <- runif(n)
+  ones <- which(bernoulli_samples<p)
+  bernoulli_samples[ones]<- rep(c(1),length((ones)))
+  bernoulli_samples[-ones]<- rep(c(0),n-length((ones)))
+  return (bernoulli_samples)
+}
+
+# Verification
+Y <-generate_bernoulli_sample(1/4,100000)
+cat("The approximated probability of the event y_i=1 is",length(which(Y==1))/length(Y))
+```
+
+-- Then, depending on the label $y_i \in \{0, 1\}$ the associated data point $\mathbf{x}_i \in \mathbb{R}^2$ is sampled as follows:
+\begin{equation*}
+  \mathbf{x}_i \mid y_i = 0 \sim \mathcal{N}(\boldsymbol{\mu}_0, \boldsymbol{\Sigma}_0) \quad \text{and} \quad \mathbf{x}_i \mid y_i = 1 \sim \mathcal{N}(\boldsymbol{\mu}_1, \boldsymbol{\Sigma}_1)
+\end{equation*}
+where $\mathcal{N}(\boldsymbol{\mu}, \boldsymbol{\Sigma})$ is a multivariate normal distribution with mean $\boldsymbol{\mu}$ and covariance matrix $\boldsymbol{\Sigma}$ with pdf
+$$
+p_{\mathcal{N}(\boldsymbol{\mu}, \boldsymbol{\Sigma})}(x) = \dfrac{1}{2\pi\sqrt{\det{\boldsymbol{\Sigma}}}}\exp\left(-\dfrac{1}{2}\big(\boldsymbol{x}-\boldsymbol{\mu}\big)^\top \boldsymbol{\Sigma}^{-1}\big(\boldsymbol{x}-\boldsymbol{\mu}\big)\right)
+$$
+and
+\begin{equation*}
+\boldsymbol{\mu}_0 = \left[\begin{array}{c}0 \\ 0\end{array}\right] \quad \boldsymbol{\mu}_1 = \left[\begin{array}{c}\varepsilon \\ 0\end{array}\right] \quad \boldsymbol{\Sigma}_0 = \left[\begin{array}{cc}0.5 & 0 \\ 0 & 0.5\end{array}\right] \quad \boldsymbol{\Sigma}_1 = \left[\begin{array}{cc}0.4 & 0 \\ 0 & 0.4\end{array}\right] \end{equation*}
+Note that to sample a $p$-dimensional vector $\mathbf{x}$ from $\mathcal{N}(\boldsymbol{\mu}, \boldsymbol{\Sigma})$, you can use the function \code{mvrnorm} from the \code{MASS} package.
+
+
+```{r}
+library(MASS)
+
+# Parameters
+mu0 <- c(0, 0)
+sigma0 <- matrix(c(0.5, 0, 0, 0.5), nrow = 2, ncol = 2)
+sigma1 <- matrix(c(0.4, 0, 0, 0.4), nrow = 2, ncol = 2)
+
+generate_gaussian_data <- function(y,mu0,mu1,sigma0,sigma1){
+  ones <- which(y==1)
+  gaussian_data <- matrix(NA, nrow = length(y), ncol = 2)
+  gaussian_data[ones,] <- mvrnorm(length(ones),mu1,sigma1)
+  gaussian_data[-ones,] <- mvrnorm(length(y)-length(ones),mu0,sigma0)
+  return (gaussian_data)
+}
+```
+We will denote a set of $N$ data points
+$\{(\mathbf{x}_i, y_i)\}_{i = 1}^N$ simulated with $\varepsilon$ and $p$
+as $\mathcal{D}(N \mid \varepsilon, p)$. Define two datasets:
+\begin{equation*}
+\mathcal{D}_\text{train} = \mathcal{D}(50 \mid 1, 0.2) \quad \text{and} \quad \mathcal{D}_{\text{test}} = \mathcal{D}(1000 \mid 1, 0.2)~.
+\end{equation*}
+
+```{r}
+# Generate the training set
+generate_training_set<- function(n,epsilon,p){
+  y_train <- generate_bernoulli_sample(p,n)
+  x_train <- generate_gaussian_data(y_train,mu0,c(epsilon, 0),sigma0,sigma1)
+  D_train <- cbind(x_train,y_train)
+  colnames(D_train) <- c("x1","x2","y")
+  D_train <- as.data.frame(D_train)
+  return (D_train)
+}
+
+D_train<- generate_training_set(50,1,0.2)
+
+# Generate the testing set
+generate_testing_set<- function(n,epsilon,p){
+  y_test <- generate_bernoulli_sample(p,n)
+  x_test <- generate_gaussian_data(y_test,mu0,c(epsilon, 0),sigma0,sigma1)
+  D_test <- cbind(x_test,y_test)
+  colnames(D_test) <- c("x1","x2","y")
+  D_test <- as.data.frame(D_test)
+  return (D_test)
+}
+
+D_test<-generate_testing_set(1000,1,0.2)
+```
+
+
+
+
+(a) Plot the data points in $\mathcal{D}_\text{train} \cup \mathcal{D}_\text{test}$ using different colors to indicate the classes of each data point and different pointing symbols to indicate whether a point is from the train or test set. The keyword \code{pch} from the \code{plot} function allows you to change the symbol of the scatter plot. For instance, using \code{pch=1} will give circles and \code{pch=6} are triangles pointing down. Note that you can overlay scatter plots on an existing figure with the command \code{points}.
+
+```{r}
+
+# Plotting the training set
+plot(D_train$x1,D_train$x2, col = ifelse(D_train$y == 0, "blue", "red"),
+     pch = 1, xlab = "x1", ylab = "x2", main = "Training points")
+
+# Plot of the testing set
+plot(D_test$x1, D_test$x2, col = ifelse(D_test$y == 0, "blue", "red"),
+       pch = 4, xlab = "x1", ylab = "x2", main = "Testing points")
+
+# Plotting the whole dataset
+plot(D_train$x1,D_train$x2, col = ifelse(D_train$y == 0, "blue", "red"),
+     pch = 1, xlab = "x1", ylab = "x2", main = "Training and Test points")
+points(D_test$x1, D_test$x2, col = ifelse(D_test$y == 0, "black", "purple"),
+       pch = 4)
+
+# Adding the legend
+legend("topright", legend = c("Training | y=0", "Training | y=1", "Testing | y=0", "Testing | y=1"),
+       col = c("blue", "red", "black", "purple"), pch = c(1, 1, 4, 4))
+
+```
+When plotting each of the sets (training and testing), we verify that they are indeed likely to be generated from two gaussian distributions: 
+* One with a (0,0) mean and a variance around 0.5 inside an isotropic configuration (no off-diagonal entries)
+* And another one with a (1,0) mean and a variance around 0.4 with no off-diagonal entries as well.
+
+
+(b) What is the mathematical expression for the optimal Bayes classifier in this setting? And for its boundary region? Remember that the Bayes classifier can be written in terms of the ratio of $\text{Prob}(Y = 1 \mid \mathbf{x})$ over $\text{Prob}(Y = 0 \mid \mathbf{x})$ and that the values of $\mathbf{x} \in \mathbb{R}^2$ for which this ratio is 1 are those defining its boundary.
+
+The Bayes classifier assigns a class to a point \( x \) based on which class has the higher posterior probability at \( x \). The classifier is formulated as follows:
+
+$$
+f(x) = \underset{k}{\text{argmax}} \, P(Y=k \mid X \in B_{\epsilon}(x))
+$$
+
+
+
+The boundary of the classifier is defined where the probabilities of the two classes are equal. This condition can be expressed as:
+
+$$
+P(Y=1 \mid X \in B_{\epsilon}(x)) = P(Y=0 \mid X \in B_{\epsilon}(x))
+$$
+
+Using the probability density functions and simplifying, we get:
+
+$$
+\frac{P(Y=1 \mid X \in B_{\epsilon}(x))}{P(Y=0 \mid X \in B_{\epsilon}(x))} = \frac{p}{1-p} \sqrt{\frac{\text{det}(\Sigma_{0})}{\text{det}(\Sigma_{1})}} \exp\left(-\frac{1}{2}\left((x-\mu_{1})^{t}\Sigma_{1}^{-1}(x-\mu_{1}) - (x-\mu_{0})^{t}\Sigma_{0}^{-1}(x-\mu_{0})\right)\right)
+$$
+
+
+Applying ln to simplify the expression:
+
+$$
+\ln\left(\frac{P(Y=1 \mid X \in B_{\epsilon}(x))}{P(Y=0 \mid X \in B_{\epsilon}(x))}\right) = -\frac{1}{2}\left((x-\mu_{1})^{t}\Sigma_{1}^{-1}(x-\mu_{1}) - (x-\mu_{0})^{t}\Sigma_{0}^{-1}(x-\mu_{0})\right) + \frac{1}{2}\ln\left(\frac{\text{det}(\Sigma_{0})}{\text{det}(\Sigma_{1})}\right) + \ln\left(\frac{p}{1-p}\right)
+$$
+The boundary is defined where this logarithmic expression equals zero:
+
+$$
+-\frac{1}{2}\left((x-\mu_{1})^{t}\Sigma_{1}^{-1}(x-\mu_{1}) - (x-\mu_{0})^{t}\Sigma_{0}^{-1}(x-\mu_{0})\right) + \frac{1}{2}\ln\left(\frac{\text{det}(\Sigma_{0})}{\text{det}(\Sigma_{1})}\right) + \ln\left(\frac{p}{1-p}\right) = 0
+$$
+
+
+
+The final form of the Bayes classifier function is given by:
+
+$$
+f(x) = 
+\begin{cases} 
+1 & \text{if } \ln\left(\frac{P(Y=1 \mid X \in B_{\epsilon}(x))}{P(Y=0 \mid X \in B_{\epsilon}(x))}\right) \geq 0 \\
+0 & \text{otherwise}
+\end{cases}
+$$
+(c) Estimate the error of the Bayes classifier on the samples from $\mathcal{D}_{\text{test}}$. How you would expect it to change in terms of $\varepsilon$? Plot a curve showing how the Bayes error rate changes for different choices $\varepsilon$ (note that you will have to generate new test datasets for this).
+
+```{r}
+
+BayesClassifier <- function(X,p,mu_0,sigma_0,mu_1,sigma_1){
+  
+  prediction <-c()
+  
+  for (i in 1:nrow(X)){
+    
+    part1 <- matrix(X[i,]-mu_1, ncol = length(mu_1)) %*% solve(sigma_1) %*% t(matrix(X[i,]-mu_1, ncol = length(mu_1)))-matrix(X[i,]-mu_0, ncol = length(mu_0)) %*% solve(sigma_0) %*% t(matrix(X[i,]-mu_0, ncol = length(mu_0)))
+    part2 <- (p/(1-p))*sqrt(det(sigma_0)/det(sigma_1))
+    boundary <- (-0.5)*part1+log(part2)
+    if(boundary>0){
+      prediction<- c(prediction,1)
+    }
+    else{
+      prediction<- c(prediction,0)
+    }
+  }
+  return (prediction)
+}
+
+# Train the model and perform the predictions
+
+predictions <- BayesClassifier(as.matrix(D_test[,c("x1","x2")],ncol=2),0.2,mu0,sigma0,c(1,0),sigma1)
+    
+# Compute the error
+classification_error <- mean(predictions!=D_test$y)
+
+cat("The classification error for epsilon=1 is : ",classification_error)
+```
+We know that epsilon controls the mean value of the gaussian distribution that generates rows whom y is equal to 1.
+Therefore, when $\varepsilon$ increases, the two populations (x|y=0, x|y=1) become more distinct since the overlap between them is decreasing.
+As a result, the boundary decision becomes clearer and finally the prediction error decreases.
+
+```{r}
+
+compute_error_bayes <- function(max_value,n){
+  errors <- c()
+  epsilons <- seq(0,max_value,length.out = n)
+  for(i in 1:length(epsilons)){
+    # Choose a value for epsilon
+    epsilon <- epsilons[i]
+    # Generate the testing set
+    D_test <- generate_testing_set(1000,epsilon,0.2)
+    # Perform the predictions
+    predictions <- BayesClassifier(as.matrix(D_test[,c("x1","x2")],ncol=2),0.2,mu0,sigma0,c(epsilon,0),sigma1)
+    # Compute the error
+    error <- mean(predictions!=D_test$y)
+    errors<-c(errors,error)
+  }
+  return (errors)
+}
+
+
+# Error plot
+maximum_epsilon <- 5
+number_of_experiences <- 40
+
+plot(seq(0,maximum_epsilon,length.out = number_of_experiences),compute_error_bayes(maximum_epsilon,number_of_experiences),
+     xlab = "epsilon", ylab = "Error", main = "Evolution of error with epsilon")
+
+
+```
+We observe that the plot confirms our initial analysis : the prediction error decreases with the increase in $\varepsilon$.
+
+(d) Given the structure of the model generating the datasets, which classifier presented in our lectures seems to be the most adequate? Justify your answer in terms of the assumptions behind the construction of each classifier.
+
+Since :
+ $$y->B(p)$$
+ $$x|y=0\rightarrow N(\mu_0,\sigma_0)$$
+ $$x|y=1\rightarrow N(\mu_1,\sigma_1)$$
+with $\sigma_{0}$ being different than $\sigma_1$.
+Then the model that seems to be the most adequate is the Quadratic Discriminant Analysis.
+In fact:
+
+
+  + Although $P(y|x)$ is a sigmoid function for both QDA and logistic regression, QDA makes a stronger assumption by supposing that $x|y=0$ and $x|y=1$ are gaussians which happens to be true in our case. Therefore, QDA would perform better in this case since we're baking in more information for the algorithm alongside with the data itself.
+ + LDA assumes that the distributions share the same covariances which isn't the case in here. Nevertheless, since the values inside $\sigma_0$ and $\sigma_1$ are not far from each other (0.5 and 0.4), LDA might perform very closely to QDA.
+ + KNN uses little to no assumptions about the data. Therefore, it is expected to perform poorer compared to QDA whose assumptions are true in this case.
+
+ 
+(e) Train a LDA, a QDA, and a logistic regression classifier on $\mathcal{D}_\text{train}$ and estimate their errors on the samples from $\mathcal{D}_\text{test}$. How do their errors compare to the value obtained in (c)? Can we expect the gap between the Bayes error rate and test error for each classifier change when the number of samples in $\mathcal{D}_{\text{train}}$ in change? Justify your answer.
+
+```{r}
+set.seed(3)
+D_train<- generate_training_set(50,1,0.2)
+D_test <- generate_testing_set(1000,1,0.2)
+```
+
+
+```{r}
+library(MASS)
+
+# LDA
+ldaPred <- function(train,test){
+  ldaModel <- lda(y~.,data=train)
+  ldaPredictions <- predict(ldaModel,newdata=test[,c("x1","x2")])$class
+  ldaPredictionError <- mean(ldaPredictions!=test$y)
+  return (ldaPredictionError)
+}
+cat("The prediction error of the LDA model is :",ldaPred(D_train,D_test),"\n")
+
+# QDA
+qdaPred <- function(train, test){
+  qdaModel <- qda(y~.,data=train)
+  qdaPredictions <- predict(qdaModel,newdata=test[,c("x1","x2")])$class
+  qdaPredictionError <- mean(qdaPredictions!=test$y)
+  return (qdaPredictionError)
+}
+cat("The prediction error of the QDA model is :",qdaPred(D_train,D_test),"\n")
+
+# Logistic regression
+logregPred <- function(train,test){
+  logregModel <- glm(y~.,data=train, family = binomial)
+  logregPredictions <- predict(logregModel,newdata=test[,c("x1","x2")],type="response")
+  logregPredictions <- as.integer(logregPredictions>0.5)
+  logregPredictionError <- mean(logregPredictions!=test$y)
+  return (logregPredictionError)
+}
+cat("The prediction error of the Logistic Regression model is :",logregPred(D_train,D_test),"\n")
+
+# Bayes Classifier
+BayesPred <- function(test){
+  predictions <- BayesClassifier(as.matrix(test[,c("x1","x2")],ncol=2),0.2,mu0,sigma0,c(1,0),sigma1)
+  error <- mean(predictions!=D_test$y)
+  return(error)
+}
+cat("The prediction error of the Bayes Classifier is :",BayesPred(D_test),"\n")
+
+```
+* We observe that QDA and LDA perform very closely to each other while staying ahead of the logistic regression model in this case.
+
+* By definition, the Bayes classifier represents the optimal classifier that achieves the lowest possible error rate.
+Therefore, all the classification methods are expected to fall behind it and have a higher error. And this is true in practice also.
+
+* As the number of samples in $\mathcal{D}_{\text{train}}$ changes, we can expect the gap between the Bayes error rate and test error for each classifier to vary. Increasing the number of samples generally reduces this gap due to several factors:
+  + Firstly, a larger training set allows classifiers to capture the underlying patterns in the data more accurately, leading to lower bias and variance. 
+  + Secondly, overfitting to noise or specific characteristics of the training data is less likely with more samples, resulting in more stable performance on unseen data.
+  + Thirdly, the improved generalization ability of classifiers with a larger and more diverse training set contributes to narrowing the gap.
+  
+  Let's plot the evolution of the error with the number of training samples:
+```{r}
+#Evolution of the error rate with the number of data points in the training set
+set.seed(20)
+experiment <- function(){
+  samples_range = seq(50,1000,length.out=19)
+  error_rate_vector <- c()
+  for (i in 1:length(samples_range)){
+    # Generate a new training set containing samples_range[i] data points
+    train <- generate_training_set(samples_range[i],1,0.2)
+    error_rate_vector <- c(error_rate_vector,ldaPred(train,D_test))
+  }
+  return (error_rate_vector)
+}
+plot(seq(50,1000,length.out=19),experiment())
+```
+
+
+(f) Consider a new test set defined as $\mathcal{D}'_\text{test} = \mathcal{D}(1000 \mid 1, 0.8)$. Use the same classifiers trained in (e) and estimate their new test errors. Do you observe any difference in the results? Can you explain what is happening?
+
+```{r}
+D_test_new <- generate_testing_set(1000,1,0.8)
+D_train_old <- D_train
+
+#Prompt
+cat("The prediction errors of the model trained on p=0.2 regarding one having p=0.8 is:\n")
+
+#LDA
+cat("LDA : ",ldaPred(D_train_old,D_test_new),"\n")
+
+
+#QDA
+cat("QDA: ",qdaPred(D_train_old,D_test_new),"\n")
+
+#Logistic regression
+cat("Logistic regression :",logregPred(D_train_old,D_test_new),"\n")
+
+```
+
+These errors indicate that all three classifiers perform relatively poorly on the new test set compared to the original test set. The increase in prediction errors suggests that the classifiers trained on the original dataset with p=0.2 do not generalize well to the new distribution with p=0.8.
+
+In other words, this indicates that the classifiers struggle to adapt to the distribution shift caused by the change in Bernoulli probability. 
+In fact, when p=0.2, it implies that the occurrence of the event $y=1$ is relatively low, while p=0.8 indicates a higher likelihood of occurrence. Therefore, the data generated with p=0.8 would contain much more data points that are samples of $N(\mu_1,\sigma_1)$ rather than $N(\mu_0,\sigma_0)$ which wasn't the case in the first data set that served to train the models. Which leads finally to a higher prediction error. 
+
+
+
+
+
+
+\section\*{\$\\blacktriangleright\$\~Part 2}
+
+In this part, we will consider a simulated benchmark similar to that
+from
+\textcolor{blue}{\href{https://www.statlearning.com/}{Section 4.5.2 in James et al}}
+presented and discussed in class. Our benchmark will compare the
+performance of four classifiers under three different scenarios.
+
+\subsection\*{\\small\--\~Scenario 1}
+
+The observations for this scenario are generated as per:
+\begin{equation*}
+\{(\mathbf{x}_i, y_i)\}_{i = 1}^{2N} = \{(\mathbf{x}_i, 0)\}_{i = 1}^{N} \cup \{(\mathbf{x}_i, 1)\}_{i = 1}^{N}
+\end{equation*} with \begin{equation*}
+\mathbf{x}_i | y_i = 0 \sim \mathcal{N}(\mathbf{\mu}_0, \mathbf{\Sigma}_0) \quad \text{with} \quad \mathbf{\mu}_0 = \left[\begin{array}{c}0 \\ 0\end{array}\right] \quad \text{and} \quad \mathbf{\Sigma}_0 = \left[\begin{array}{cc}1 & 0 \\ 0 & 2\end{array}\right]
+\end{equation*} and \begin{equation*}
+\mathbf{x}_i | y_i = 1 \sim \mathcal{N}(\mathbf{\mu}_1, \mathbf{\Sigma}_1) \quad \text{with} \quad \mathbf{\mu}_1 = \left[\begin{array}{c}1 \\ 1\end{array}\right] \quad \text{and} \quad \mathbf{\Sigma}_1 = \left[\begin{array}{cc}1 & 0 \\ 0 & 2\end{array}\right]~.
+\end{equation*} The training set always have $N=20$ and the test set
+$N=5000$.
+
+
+\begin{itemize}
+ 
+\item Compare the performances of LDA, logistic regression, Gaussian naive Bayes, and QDA in this scenario. For this, you should generate 100 pairs of training-test datasets and evaluate the test errors for each of the classifiers. Use the command \code{boxplot} to display the results for each of the classifiers along the different realizations. Explain the differences of the performances in terms of the assumptions of each classifier and the structure of the data generating mechanism.
+\end{itemize}
+
+We start first by defining some helper functions that will be used
+across all scenarios
+
+```{r}
+# Method that generates training and testing data sets
+generate_data<- function(n,mu0,sigma0,mu1,sigma1){
+  subset1 <- mvrnorm(n,mu0,sigma0)
+  subset2 <- mvrnorm(n,mu1,sigma1)
+  dataset <- rbind(subset1,subset2)
+  target <- c(rep(c(0),n),rep(c(1),n))
+  dataset <- as.data.frame(cbind(dataset,target))
+  colnames(dataset) <- c("x1","x2","y")
+  return (dataset)
+}
+
+```
+
+```{r}
+#install.packages("e1071")
+library(e1071)
+
+# Method that implements the described benchmark
+scenario <- function(mu0, sigma0, mu1, sigma1){
+  errors_matrix <-  matrix(NA, nrow = 100, ncol = 4)
+  colnames(errors_matrix) <- c("LDA", "QDA", "LogReg", "GaussianNBayes")
+  
+  for (i in 1:100){
+    
+    #Generate testing and training sets
+    D_train <- generate_data(20,mu0,sigma0,mu1,sigma1)
+    D_test <- generate_data(5000,mu0,sigma0,mu1,sigma1)
+    
+    # We use the functions that have already been defined in Part1 : e)
+      #LDA
+    errors_matrix[i,c("LDA")] <- ldaPred(D_train,D_test)
+      #QDA
+    errors_matrix[i,c("QDA")] <- qdaPred(D_train,D_test)
+      #Logistic Regression
+    errors_matrix[i,c("LogReg")] <- logregPred(D_train,D_test)
+      #Gaussian Naive Bayes
+    model <- naiveBayes(y ~ ., data = D_train)
+    predictions <- predict(model, newdata = D_test[,c("x1","x2")])
+    predictions <- as.numeric(levels(predictions))[predictions]
+    errors_matrix[i,c("GaussianNBayes")] <- mean(predictions!=D_test$y)
+    
+  }
+  return(as.data.frame(errors_matrix))
+}
+
+```
+
+Now let's investigate the first scenario:
+
+```{r}
+# 1st scenario
+  # Define the different parameters
+mu0 <- c(0,0)
+mu1 <- c(1,1)
+sigma0 <- matrix(c(1,0,0,2), nrow = 2, ncol = 2)
+sigma1 <- matrix(c(1,0,0,2), nrow = 2, ncol = 2)
+  # Quantify the prediction error of the different classification algorithms
+errors_matrix <- scenario(mu0,sigma0,mu1,sigma1)
+  # Barplot the results
+boxplot(errors_matrix, main = "1st scenario", xlab = "Classifiers", ylab = "Prediction Error")
+
+```
+
+Conclusions - 1st scenario:
+
+-   The best performing algorithm in this case is LDA. This was expected
+    since the model's assumptions are accurate (two multivariate normal
+    distributions with a shared covariance).
+-   The second best is logistic regression. This can be linked to two
+    main reasons:
+    -   First, the decision boundary is linear which matches the way
+        logistic regression does it's classification.
+    -   Second, by construction $P(y|x)$ is a logistic function which
+        matches the assumption made by the algorithm.
+-   Then comes Gaussian Naive Bayes and QDA last, with GNB performing
+    slightly better since the independence assumption made by GNB was
+    accurate and since QDA is a bit too flexible for this linear case
+    leading to increased variance in the parameter estimates.
+
+\subsection\*{\\small\--\~Scenario 2}
+
+The observations for this scenario are generated as per:
+\begin{equation*}
+\{(\mathbf{x}_i, y_i)\}_{i = 1}^{2N} = \{(\mathbf{x}_i, 0)\}_{i = 1}^{N} \cup \{(\mathbf{x}_i, 1)\}_{i = 1}^{N}
+\end{equation*} with \begin{equation*}
+\mathbf{x}_i | y_i = 0 \sim \mathcal{N}(\mathbf{\mu}_0, \mathbf{\Sigma}_0) \quad \text{with} \quad \mathbf{\mu}_0 = \left[\begin{array}{c}0 \\ 0\end{array}\right] \quad \text{and} \quad \mathbf{\Sigma}_0 = \left[\begin{array}{cc}1 & -0.7 \\ -0.7 & 2\end{array}\right]
+\end{equation*} and \begin{equation*}
+\mathbf{x}_i | y_i = 1 \sim \mathcal{N}(\mathbf{\mu}_1, \mathbf{\Sigma}_1) \quad \text{with} \quad \mathbf{\mu}_1 = \left[\begin{array}{c}1 \\ 1\end{array}\right] \quad \text{and} \quad \mathbf{\Sigma}_1 = \left[\begin{array}{cc}1 & -0.7 \\ -0.7 & 2\end{array}\right]~.
+\end{equation*} The training set always have $N=20$ and the test set
+$N=5000$.
+
+
+\begin{itemize}
+ 
+\item Perform the same comparison as done for Scenario 1.
+\end{itemize}
+```{r}
+# 2nd scenario
+  # Define the different parameters
+mu0 <- c(0,0)
+mu1 <- c(1,1)
+sigma0 <- matrix(c(1,-0.7,-0.7,2), nrow = 2, ncol = 2)
+sigma1 <- matrix(c(1,-0.7,-0.7,2), nrow = 2, ncol = 2)
+  # Quantify the prediction error of the different classification algorithms
+errors_matrix2 <- scenario(mu0,sigma0,mu1,sigma1)
+  # Barplot the results
+boxplot(errors_matrix2, main = "2nd scenario", xlab = "Classifiers", ylab = "Prediction Error")
+
+```
+
+Conclusions - 2nd scenario:
+
+-   The same remarks that were made earlier in the 1st scenario about
+    LDA, Logistic Regression and QDA stay valid since we have two
+    multivariate normal distributions with a shared covariance.
+    Therefore, LDA is the best option followed by logistic regression
+    with QDA coming last among the 3.
+-   Nevertheless, the variables are no longer independent (they are
+    negatively correlated : the pdf is compressed towards the left
+    side). Which means that the main assumption made by the Naive Bayes
+    Algorithm is violated. Leading finally to a poor performance of the
+    model in this case.
+
+\subsection\*{\\small\--\~Scenario 3}
+
+The observations for this scenario are generated as per:
+\begin{equation*}
+\{(\mathbf{x}_i, y_i)\}_{i = 1}^{2N} = \{(\mathbf{x}_i, 0)\}_{i = 1}^{N} \cup \{(\mathbf{x}_i, 1)\}_{i = 1}^{N}
+\end{equation*} with \begin{equation*}
+\mathbf{x}_i | y_i = 0 \sim \mathcal{N}(\mathbf{\mu}_0, \mathbf{\Sigma}_0) \quad \text{with} \quad \mathbf{\mu}_0 = \left[\begin{array}{c}0 \\ 0\end{array}\right] \quad \text{and} \quad \mathbf{\Sigma}_0 = \left[\begin{array}{cc}1 & -0.7 \\ -0.7 & 2\end{array}\right]
+\end{equation*} and \begin{equation*}
+\mathbf{x}_i | y_i = 1 \sim \mathcal{N}(\mathbf{\mu}_1, \mathbf{\Sigma}_1) \quad \text{with} \quad \mathbf{\mu}_1 = \left[\begin{array}{c}1 \\ 1\end{array}\right] \quad \text{and} \quad \mathbf{\Sigma}_1 = \left[\begin{array}{cc}1 & +0.7 \\ +0.7 & 2\end{array}\right]~.
+\end{equation*} The training set always have $N=20$ and the test set
+$N=5000$.
+
+
+\begin{itemize}
+ 
+\item Perform the same comparison as done for Scenarios 1 and 2.
+\end{itemize}
+
+```{r}
+# 3rd scenario
+  # Define the different parameters
+mu0 <- c(0,0)
+mu1 <- c(1,1)
+sigma0 <- matrix(c(1,-0.7,-0.7,2), nrow = 2, ncol = 2)
+sigma1 <- matrix(c(1,0.7,0.7,2), nrow = 2, ncol = 2)
+  # Quantify the prediction error of the different classification algorithms
+errors_matrix3 <- scenario(mu0,sigma0,mu1,sigma1)
+  # Barplot the results
+boxplot(errors_matrix3, main = "3rd scenario", xlab = "Classifiers", ylab = "Prediction Error")
+
+```
+
+Conclusions - 3rd scenario:
+
+-   Since the way we generated the data match exactly the assumptions of
+    QDA (two multivariate normal distributions with different
+    covariances), QDA was expected to be the best performer in this
+    case.
+-   LDA comes second with only it's assumption about shared covariances
+    being violated.This suggests that LDA is somewhat robust to
+    violations of the shared covariance assumption.
+-   Logistic Regression comes after thanks to the fact that $P(y|x)$ is
+    a logistic function which matches the made assumption.
+-   Gaussian Naive Bayes assumes that the features are conditionally
+    independent given the class label. However, in this scenario, the
+    features are not independent due to the off-diagonal elements in the
+    covariance matrices. This violation of the independence assumption
+    leads to poor performance of Gaussian Naive Bayes in this case.

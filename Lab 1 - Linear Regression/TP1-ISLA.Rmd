@@ -1,0 +1,586 @@
+---
+documentclass: article
+papersize: a4
+geometry: top=1.5cm, bottom=2cm, left=1.5cm, right=1.5cm
+fontsize: 11pt
+output:
+  html_document:
+    toc: no
+    df_print: paged
+  pdf_document:
+    extra_dependencies: enumitem
+    number_sections: yes
+    toc: no
+    keep_tex: no
+    includes:
+      in_header: "TP1-preamble.tex"
+      before_body: "TP1-header.tex"
+---
+
+<!-- see help at https://bookdown.org/yihui/rmarkdown-cookbook/latex-output.html -->
+
+```{r setup, include=FALSE, message=FALSE}
+#see full list >knitr::opts_chunk$get()
+knitr::opts_chunk$set(echo = TRUE, fig.align="center")
+```
+
+### Younes Essafouri, Aymane Haoulani, Aymane El-achab
+
+A medical study made on patients with prostate cancer aims to analyze the correlation between the prostate tumor volume and a set of clinical and morphometric variables. These variables include prostate specific antigens, a biomarker for prostate cancer, and a number of clinical measures (age, prostate weight, etc). The goal of this practical is to build a regression model to predict the severity of cancer, expressed by logarithm of the tumor volume (`lcavol` variable) from the following predictors:
+
+```{=tex}
+\begin{enumerate}
+\itemsep0em
+\item[] \code{lpsa}: log of a prostate specific antigen
+\item[] \code{lweight}: log of prostate weight
+\item[] \code{age}: age of the patient
+\item[] \code{lbph}: log of benign prostatic hyperplasia amount
+\item[] \code{svi}: seminal vesicle invasion
+\item[] \code{lcp}: log of capsular penetration
+\item[] \code{gleason}: Gleason score (score on a cancer prognosis test)
+\item[] \code{pgg45}: percent of Gleason scores 4 or 5
+\end{enumerate}
+```
+The file `prostate.data`, available on the course website, contains measures of the logarithm of the tumor volume and of the 8 predictors for 97 patients. This file contains also an additional variable, train, which will not be used and has to be removed.
+
+\\section\*{\$\\blacktriangleright\$\~Exercise 1: Preliminary analysis of the data}
+
+Download the file \code{prostate.data} and store it in your current folder. Read the dataset in \code{R} and make sure that the database appears in the \code{R} search path.
+
+```{r}
+# Load patients data
+prostateCancer <- read.table("prostate.data", header=T)
+attach(prostateCancer)
+```
+
+Build an object \code{prostateCancer} of class \code{data.frame} that contains, for each patient, the \code{lcavol} variable and the values of the 8 predictors. Remove the last column (\code{train}) of the data frame.
+
+*Hint*: You can remove columns in data frames by using negative indices to exclude them. Using \code{headers = T} in \code{read.table} will ensure that the column names are given by \code{names(prostateCancer)}.
+
+```{r}
+# Omit the unwanted column using the '-' operator and the 'names' method.
+prostateCancer <- prostateCancer[, -which(names(prostateCancer) == "train")]
+prostateCancer
+```
+
+Use the command \code{pairs} to visualize the correlations between all the variables. This command generates scatterplots (clouds of points) between all pairs of variables. Analyse the correlations between all the variables and identify the variables which are the most correlated to \code{lcavol}.
+
+```{r}
+# Use of the pairs method to vizualise potential correlation between our variables.
+correlationAnalysis <- pairs(prostateCancer,main="Correlation Scatterplot Matrix")
+```
+
+We observe a certain correlation of lcavol with the lcp,lpsa, lweight and age variables
+
+\\section\*{\$\\blacktriangleright\$\~Exercise 2: Linear regression}
+
+**(a)** Perform a multiple linear regression to build a predictive model for the \code{lcavol} variable.
+
+The variables \code{gleason} and \code{svi} should be considered as qualitative variables. You can do this with
+
+```{r}
+#Since gleason and svi are qualitative variables, we need to perform an encoding to the information they contain
+prostateCancer$gleason<-factor(prostateCancer$gleason)
+prostateCancer$svi<-factor(prostateCancer$svi)
+
+# Inspection of the levels that were encoded by R using the factor method
+levels(prostateCancer$gleason)
+levels(prostateCancer$svi)
+
+```
+
+Provide the mathematical equation of the regression model and define the different parameters. Use \code{summary} to display the regression table and explain what are the regression coefficients of the lines which names start by \code{svi} and \code{gleason}. Comment the results of the regression.
+
+For each quantitative variable $\alpha$, we assign a corresponding constant $\beta_{\alpha}$ and a variable $X_{\alpha}$.
+
+Regarding the qualitative ones (for instance $\delta$), we take the first possible value as a reference and map each one of the following to a corresponding constant and a dummy variable similarly to the quantitative case.
+
+Let's also consider an additional noise $\epsilon$ centered in 0 (we often take $\epsilon\rightarrow \mathbb{N(0,\sigma^2)}$) so we can perform a statistical hypothesis test on the significance of the relationship between our variables.
+
+Therefore, the regression model becomes in this case:
+
+$$lcavol = \beta_0+\beta_{lweight}X_{lweight}+\beta_{age}X_{age}+\beta_{lbph}X_{lbph}+\beta_{svi1}X_{svi1}+\beta_{lcp}X_{lcp}+\beta_{gleason7}X_{gleason7}+\beta_{gleason8}X_{gleason8}+
+\beta_{gleason9}X_{gleason9}+\beta_{pgg45}X_{pgg45}+\beta_{lpsa}X_{lpsa}+\epsilon$$
+
+```{r}
+lmModel <- lm(lcavol~.,data=prostateCancer)
+summary(lmModel)
+```
+
+The summary method confirms the strong correlation observed using the pairs method earlier between lcavol and lpsa, lcp, pgg45 and the age variables.
+
+Nevertheless, the correlation between lweight and lcavol is not as strong as the corresponding figure suggested which highlights the importance of not only relying on visual inspection for assessing relationships between variables.
+
+Finally, the F-statistic is 18.83 with a small p-value \< 2.2e-16 which suggests that the linear model is statistically significant overall.
+
+**(b)** Give confidence intervals of level 95% for all the coefficients of the predictors with \code{confint}. Comment the results.
+
+```{r}
+confidenceInt <- confint(lmModel)
+print(confidenceInt)
+```
+
+Among the methods to assess whether a relationship is statistically significant, we may check if the 95% confidence interval of the corresponding coefficient does not include 0 (so it is very unlikely that it equals to 0).
+
+Therefore, we can say that age, lcp, pgg45, and lpsa exhibit statistically significant relationships with lcavol, while the coefficients for lweight, lbph, svi1, gleason7, gleason8, and gleason9 lack statistical significance, as their confidence intervals include 0.
+
+**(c)** What can you say about the effect of the \code{lpsa} variable? Relate your answer to the $p$-value of a test and a confidence interval.
+
+Let's recall first the relevant results related to the lpsa variable:
+
+```{r}
+# LPSA p-value
+lpsaPValue <- summary(lmModel)$coefficients["lpsa", "Pr(>|t|)"]
+cat("p-value:",lpsaPValue,"\n")
+# Confidence interval for lpsa
+LPSAConfInterval <- confint(lmModel)["lpsa", ]
+cat("Confidence Interval : [",LPSAConfInterval,"]")
+```
+* First, the very low p-value suggests that there is strong evidence against the coefficient of lpsa being equal to 0.
+* Moreover, the confidence interval of the corresponding coefficient does not include 0.
+
+These results indicate that the relationship between lpsa and lcavol is statistically significant(positively: lpsa and lcavol have the sale monotony).
+
+**(d)** Plot the predicted values of \code{lcavol} as a function of the actual values. Plot the histogram of residuals. Can we admit that the residuals are normally distributed? Compute the residual sum of squares.
+
+```{r}
+#Plot of the predicted values of lcavol compared to the actual ones
+predicted <- predict(lmModel)
+plot(prostateCancer$lcavol,predicted)
+
+# Plot the y=x line to get a first assessment of the quality of the prediction
+abline(a=0,b=1,col="red") 
+```
+
+```{r}
+#Histogram of residuals
+residuals <- residuals(lmModel)
+hist(residuals,freq = FALSE) 
+
+# Investigate the correspondant probabilistic law 
+residualsDensity <- density(residuals)
+lines(residualsDensity, col = "red", lwd = 2)
+```
+Since the histogram gives an idea about the shape of the density function behind the plotted data, it is likely that the residuals in this case are normally distributed. 
+
+Let's investigate more this assumption using a QQ-plot. In fact, this method compares the quantiles of the residuals against those of a theoritical normal distribution. Therefore, if the points fall near the diagonal line, it suggests that the residuals are normally distributed.
+
+
+```{r}
+# QQ-plot of the residuals
+qqnorm(residuals)                    
+qqline(residuals, col = "red")        
+```
+It is clear at this stage that it is very likely that the residuals are normally distributed.
+
+By definition, the residual sum of squares is : $$RSS(y,\hat{y})=\sum_{i=0}^{n}(y_i-\hat{y_i})^2$$
+
+Therefore:
+
+```{r}
+RSS <- sum(residuals^2)
+cat("RSS =",RSS)
+```
+
+
+**(e)** What do you think of the optimality of this model?
+
+Since the residuals are likely normally distributed, the choice of the noise model was a successful one.
+
+Furthermore, the model has got the maximum possible number of predictors which increases the risk of overfitting.
+
+Nevertheless, we can't conclude anything about the optimality of the model because it has not been tested on some unseen portion of the data yet.
+
+**(f)** What happens if predictors \code{lpsa} and \code{lcp} are removed from the model? Try to explain this new result.
+```{r}
+cat("Linear Regression Model Including lpsa and lcp\n")
+summary(lmModel)
+```
+```{r}
+lmModel2 <- lm(lcavol~lweight+age+lbph+svi+gleason+pgg45,data=prostateCancer)
+cat("Linear Regression Model Exluding lpsa and lcp\n")
+summary(lmModel2)
+```
+After removing lpsa and lcp from the model, the quality of the new model became clearly worse than the previous one.
+
+* First, the model explanatory power (Multiple R-squared) dropped approximately by 25% from 68.65% to 43.27%.
+
+* Second, the residual standard error increased from 0.6973 to 0.9272 suggesting a poorer quality of fit.
+
+* Third, the value of the F-statistic decreased as well from 18.83 to 8.39 highlighting a worse overall performance of the model.
+
+These observed effects were expected, considering that lpsa and lcp were identified as the most correlated variables with lcavol. Their removal from the model led to a loss of valuable information and predictive power and increase in terms of contribution of variable once considered as statistically insignificant, resulting in a less optimal regression model. Therefore, it is crucial to carefully consider the inclusion or exclusion of predictors based on their correlation with the response variable and their contribution to the overall model performance. 
+
+\\section\*{\$\\blacktriangleright\$\~Exercise 3: Best subset selection}
+
+A regression model that uses $k$ predictors is said to be of size $k$.
+
+For instance, $\texttt{lcavol} = \beta_1~\texttt{lpsa} + \beta_0 + \varepsilon$ and $\texttt{lcavol} = \beta_1~\texttt{lweight} + \beta_0 + \varepsilon$ are models of size 1. The regression model without any predictor $\texttt{lcavol} = \beta_0 + \varepsilon$ is a model of size 0.
+
+The goal of this exercise is to select the best model of size $k$ for each value of $k$ in $\{0...8\}$.
+
+**(a)** Describe the models implemented in
+
+```{r echo = T, results = 'hide'}
+lm(lcavol~1, data=prostateCancer)
+lm(lcavol~., data=prostateCancer[,c(1,4,9)])
+lm(lcavol~., data=prostateCancer[,c(1,2,9)])
+```
+
+*The first one is a model of size 0. In other words, we estimate lcavol by a simple constant $\beta_0$
+
+* The second model is a model of size 2 (lbph,lpsa): $\texttt{lcavol} = \beta_2~\texttt{lpsa} + \beta_1~\texttt{lbph} + \beta_0 + \varepsilon$
+
+* The third one is also model of size 2 (lweight,lpsa): $\texttt{lcavol} = \beta_2~\texttt{lpsa} + \beta_1~\texttt{lweight} + \beta_0 + \varepsilon$
+
+**(b)** Compute the residual sums of squares for all models of size $k = 2$. What is the best choice of 2 predictors among 8? *Hint:* \code{combn(m,k)} gives all the combinations of $k$ elements among $n$
+
+```{r}
+# Definition of a helper function that computes the RSS of a given model
+compute_RSS <- function(model){
+  return (sum(residuals(model)^2))
+}
+
+# Main method that determines the optimal combination that minimizes the RSS
+optimal_combination <- function(k){
+  combinations <- combn(9,k)
+  # Preserve combinations that do not contain 1 (lcavol column)
+  combinations <- combinations[, !apply(combinations, 2, function(x) any(x == 1))]
+  RSSTable <- c()
+  for (i in 1:ncol(combinations)){
+    combination <- combinations[,i]
+    model <- lm(lcavol~., data=prostateCancer[,c(1,combination)])
+    RSSTable <- c(RSSTable,compute_RSS(model))
+  }
+  optimIndex <- which.min(RSSTable)
+  return (list(combination=combinations[,optimIndex],RSS=min(RSSTable)))  
+}
+
+# Determine the optimal combination (k=2)
+optimalCombination <- optimal_combination(2)$combination
+cat("The best choice of 2 predictors among 8 is : ",colnames(prostateCancer)[optimalCombination])
+```
+The result was expected since lcp and lpsa were the variables that were the most significant statistically and also the most correlated to lcavol.
+
+**(c)** For each value of $k \in \{0, \dots, 8\}$, select the set of predictors that minimizes the residual sum of squares. Plot the residual sum of squares as a function of $k$. Provide the names of the selected predictors for each value of $k$.
+
+```{r}
+cat("These are the sets of predictors that minimize the RSS for 0<=k<=8\n")
+RSS_Table_k <- c()
+
+# k=0
+RSS_Table_k <- c(RSS_Table_k,compute_RSS(lm(lcavol~1,data=prostateCancer)))
+
+# Atomic case: k=1
+optimal_combination_1 <- function(){
+  RSSTable <- c()
+  for (i in 2:9){
+    model <- lm(lcavol~., data=prostateCancer[,c(1,i)])
+    RSSTable <- c(RSSTable,compute_RSS(model))
+  }
+  optimIndex <- which.min(RSSTable)
+  return (list(combination=optimIndex,RSS=min(RSSTable)))  
+}
+print(colnames(prostateCancer)[optimal_combination_1()$combination])
+RSS_Table_k <- c(RSS_Table_k,optimal_combination_1()$RSS)
+
+# 1<k<8
+for (k in 2:7){
+  print(colnames(prostateCancer)[optimal_combination(k)$combination])
+  RSS_Table_k <- c(RSS_Table_k,optimal_combination(k)$RSS)
+}
+
+# k=8
+print(colnames(prostateCancer[, -which(names(prostateCancer) == "lcavol")]))
+RSS_Table_k <- c(RSS_Table_k,compute_RSS(lm(lcavol~.,data=prostateCancer)))
+```
+```{r}
+# Plot the RSS values
+plot(0:8,RSS_Table_k, xlab = "Number of Predictors", ylab = "RSS", main = "Evolution of the RSS with the number of predictors")
+```
+We observe that the RSS decreases with the number of predictors (best combination). 
+
+Therefore, the configuration where we consider all the variables remain the one with the minimum value of RSS.
+
+**(d)** Do you think that minimizing the residual sum of squares is well suited to select the optimal size for the regression models? Could you suggest another possibility?
+
+Relying on the RSS to select the optimal size for the regression models might not be a very good way to go.
+
+In fact, focusing on the minimization of the RSS may push the chosen model to be too dependent on the training data (that can be biased as well) which leads to overfitting.
+
+\\section\*{\$\\blacktriangleright\$\~Exercise 4: Split-validation}
+
+You have now found the best model for each of the nine possible model sizes. In the following, we wish to compare these nine different regression models.
+
+**(a)** Give a brief overview of split-validation: how it works? Why it is not subject to the same issues raised in the item (c) of Exercise 3?
+
+Split-validation is an evaluation method where the data set is divided into two Parts: Training set and Validation set. First, the model is trained using the training set and then evaluated/tested on the validation set. This method helps to evaluate how well our model generalizes to unseen data , and is not subject to overfitting issues unlike relying on methods similar to the one used in the previous exercise.
+
+
+**(b)** The validation set will be composed of all individuals whose indices are a multiple of 3. Store these indices in a vector called valid. *Hint:* Use \code{(1:n) \%\% 3 == 0} where `n` is the number of individuals.
+
+```{r}
+n <- nrow(prostateCancer)
+valid <- (1:n) %% 3 == 0
+```
+
+
+**(c)** Let us assume that the best model is of size 2 and contains the $i$-th and $j$-th predictor (replace $i$ and $j$ by their true values). Describe what is evaluated when running \code{lm(lcavol $\sim$., data=prostateCancer[!valid, c(1, i, j)])}. What is the mean training error for the model ?
+
+Assuming the best model is of size 2 and includes the predictors `lcp` and `lpsa`, we use the `lm(lcavol ~., data=prostateCancer[!valid, c(1, i, j)])` command to train a linear model using only the training set (excluding the validation set). It fits `lcavol` as a function of the `ith` and `jth` predictors. 
+
+Let's compute the mean training error in this case.
+
+```{r}
+# Definition of the model
+i <- which(names(prostateCancer) == "lcp")
+j <- which(names(prostateCancer) == "lpsa")
+training_set <- prostateCancer[!valid , c(1,i,j)]
+model <- lm(lcavol ~ ., data=training_set)
+summary(model)
+
+# Compute the training error (MSE)
+training_predictions <- predict(model, newdata=training_set)
+mean_training_error <- mean((training_set$lcavol - training_predictions)^2)
+cat("The mean training error (sign insensitive version) is : ",mean_training_error)
+
+```
+
+We observe that the values of the training error are around 0.46.
+
+Nevertheless, we can't conclude anything about the quality of the model since we are testing it's efficiency on the same portion of data that was used to train it in the first place.
+
+
+**(d)** Predict values of \code{lcavol} on the validation set for the regression model of size two. Compute the mean prediction error and compare it to the mean training error. *Hint*: Use \code{?predict.lm}. Note that you will have to provide the matrix containing the data of the validation set to the \code{predict} function, using the \code{newdata} argument.
+
+```{r}
+# Compute the mean prediction error
+validation_set <- prostateCancer[valid, ]
+validation_predictions <- predict(model, newdata=validation_set)
+mean_prediction_error <- mean((validation_set$lcavol - validation_predictions)^2)
+
+# Display the two types of errors side by side
+cat("Mean Training Error:", mean_training_error, "\n")
+cat("Mean Prediction Error:", mean_prediction_error, "\n")
+
+```
+We observe that the mean (squared) testing error is superior than the training error : 0.567 > 0.461.
+
+Intuitively, this result is expected since the model was trained on the first dataset.
+
+From a theoretical standpoint, this serves as a practical demonstration of the result presented on CM3 :
+
+Let $D_1$ and $D_2$ be respectively the training and testing datasets.
+
+We have : $L(r_{D_1},D_1)<L(r_{D_1},D_2)$
+
+
+**(e)** Reusing part of the code implemented in Exercises (a)--(c), perform split-validation to compare the 9 different models. Plot the training and prediction errors as a function of the size of the regression models. Choose one model, giving the parameter estimates for the model trained on the whole dataset, and explain your choice.
+
+Since we train our models on specific rows now instead of the whole dataset and the aim is to minimize the testing error, the choice made earlier in the previous exercise regarding the best models are subject to change. Therefore, we decided to redo the process. 
+
+```{r}
+set.seed(123)  # For reproducibility
+
+training_errors <- numeric(9)
+prediction_errors <- numeric(9)
+best_models <- list()
+train_error<-0
+valid_error<-0
+
+predictors <- setdiff(names(prostateCancer), "lcavol")
+
+# Determine the best model for each value of k (only !valid rows)
+for (k in 0:8) {
+  # When k is 0, fit  model with only the intercept
+  if (k == 0) {
+        formula <- "lcavol ~ 1"
+        model <- lm(formula, data = prostateCancer[!valid,])
+        # Calculate the training error
+        training_predictions <- predict(model, newdata = prostateCancer[!valid,])
+        train_error <- mean((prostateCancer$lcavol[!valid] - training_predictions)^2)
+        # Calculate the prediction error on the validation set
+        validation_predictions <- predict(model, newdata = prostateCancer[valid,])
+        valid_error <- mean((prostateCancer$lcavol[valid] - validation_predictions)^2)
+        # Store the errors for the model with only the intercept
+        training_errors[k + 1] <- train_error
+        prediction_errors[k + 1] <- valid_error
+        best_models[[k + 1]] <- model
+    } else {
+    combinations <- combn(predictors, k, simplify = FALSE)
+    best_error <- Inf
+    best_model <- NULL
+    best_comb <- NULL
+
+    for (comb in combinations) {
+      formula <- as.formula(paste("lcavol ~", paste(comb, collapse = "+")))
+      
+      model <- lm(formula, data=prostateCancer[!valid, ])
+      
+      training_predictions <- predict(model, newdata=prostateCancer[!valid, ])
+      train_error <- mean((prostateCancer$lcavol[!valid] - training_predictions)^2)
+      
+      validation_predictions <- predict(model, newdata=prostateCancer[valid, ])
+      valid_error <- mean((prostateCancer$lcavol[valid] - validation_predictions)^2)
+      
+      if (valid_error < best_error) {
+        best_error <- valid_error
+        best_model <- model
+        best_comb <- comb
+      }
+    }
+  }
+  
+  if (k == 0) {
+    training_errors[k + 1] <- train_error
+    prediction_errors[k + 1] <- valid_error
+    best_models[[k + 1]] <- model
+  } else {
+    training_errors[k + 1] <- mean((prostateCancer$lcavol[!valid] - predict(best_model, newdata=prostateCancer[!valid, ]))^2)
+    prediction_errors[k + 1] <- best_error
+    best_models[[k + 1]] <- best_model
+  }
+}
+
+
+# Plot the results
+plot(0:8, training_errors, type = "b", col = "blue", ylim = range(c(training_errors, prediction_errors)),
+     xlab = "Number of Predictors", ylab = "Error", main = "Training and Prediction Errors")
+points(0:8, prediction_errors, type = "b", col = "red")
+legend("topright", legend = c("Training Error", "Prediction Error"), col = c("blue", "red"), pch = 1)
+
+```
+The sweet spot is where the prediction error reaches it's minimum value. It seems like the 5-predictor model is the best suited one, let's confirm this observation:
+
+```{r}
+# Choice of the best suited model
+best_model_index <- which.min(prediction_errors)
+cat("The best suited model is the ",best_model_index-1,"predictors model\n")
+
+# Display the values of the different coefficients and details
+best_model <- best_models[[best_model_index]]
+print(summary(best_model))
+```
+Under all of the assumptions that have been made during this exercise, the 5-predictor model (lcp,lpsa,pgg45,gleason,age) is the optimal one.
+
+**(f)** What is the main limitation of split-validation ? Illustrate this issue on the cancer dataset. What could you do to address this problem for split-validation? Code such alternative method and comment the result.
+
+The main limitation of split-validation is that it can lead to high variance . This variance comes from the fact that the division of the dataset into training and validation sets can be arbitrary. Depending on which examples end up in the validation set, the model's perceived performance can vary significantly. This is particularly problematic with small datasets, where different splits can lead to markedly different results.
+
+```{r}
+# We adopt multiple possible splits of the initial dataset and compare the corresponding results.
+# The number of predictors has been chosen.
+
+set.seed(123)
+split_errors <- data.frame(split = integer(), training_error = numeric(), validation_error = numeric())
+
+all_levels <- unique(prostateCancer$gleason)
+prostateCancer$gleason <- factor(prostateCancer$gleason, levels = all_levels)
+
+for (i in 1:10) {
+  train_indices <- numeric(0)
+  valid_indices <- numeric(0)
+
+  for (level in levels(prostateCancer$gleason)) {
+    indices <- which(prostateCancer$gleason == level)
+    valid_size <- ceiling(length(indices) * 0.3)
+    valid_indices <- c(valid_indices, sample(indices, valid_size))
+  }
+
+  train_indices <- setdiff(1:nrow(prostateCancer), valid_indices)
+
+  trainData <- prostateCancer[train_indices, ]
+  validData <- prostateCancer[valid_indices, ]
+
+  model <- lm(lcavol ~ ., data = trainData)
+  
+  training_predictions <- predict(model, newdata = trainData)
+  train_error <- mean((trainData$lcavol - training_predictions)^2)
+  
+  validation_predictions <- predict(model, newdata = validData)
+  valid_error <- mean((validData$lcavol - validation_predictions)^2)
+  
+  split_errors <- rbind(split_errors, data.frame(split = i, training_error = train_error, validation_error = valid_error))
+}
+
+print(split_errors)
+
+```
+
+
+To solve the problem of variation , we can use "Cross-Validation",it involves dividing the dataset into k parts, training the model on k-1 folds , and validating it on the remaining fold.The process is repeated k times, each time with a different part as a validation set
+
+```{r}
+set.seed(123)  # For reproducibility
+
+all_levels_gleason <- unique(prostateCancer$gleason)
+prostateCancer$gleason <- factor(prostateCancer$gleason, levels = all_levels_gleason)
+
+K <- 10
+
+cvErrors <- rep(0, K)
+
+n <- nrow(prostateCancer)
+indices <- sample(n)
+
+# Reserve 20% of the data for the final test set
+test_set_size <- ceiling(n * 0.2)
+test_indices <- indices[1:test_set_size]
+train_indices <- indices[-(1:test_set_size)]
+
+train_set <- prostateCancer[train_indices, ]
+
+fold_size <- nrow(train_set) %/% K
+for (k in 1:K) {
+    # Determine the indices for the validation fold
+    fold_start <- (k - 1) * fold_size + 1
+    fold_end <- k * fold_size
+    validation_indices <- fold_start:fold_end
+    
+    # Split the data into this fold's training and validation sets
+    cv_train_set <- train_set[-validation_indices, ]
+    cv_validation_set <- train_set[validation_indices, ]
+    
+    cv_model <- lm(lcavol ~ ., data = cv_train_set)
+    
+    cv_predictions <- predict(cv_model, newdata = cv_validation_set)
+    
+    cvErrors[k] <- mean((cv_validation_set$lcavol - cv_predictions)^2)
+}
+
+average_cvError <- mean(cvErrors)
+final_model <- lm(lcavol ~ ., data = train_set)
+
+test_set <- prostateCancer[test_indices, ]
+
+final_predictions <- predict(final_model, newdata = test_set)
+
+final_test_error <- mean((test_set$lcavol - final_predictions)^2)
+
+print(paste("Average cross-validation error:", average_cvError))
+print(paste("Final test set mean squared error:", final_test_error))
+
+print(summary(final_model))
+
+
+```
+
+\\section\*{\$\\blacktriangleright\$\~Exercise 5: Conclusion}
+
++ What is your conclusion about the choice of the best model to predict \code{lcavol}?
+
+Following this analysis, we can affirm that we should not rely solely on the training error to chose the optimal model since the increase in the number of predictors will always help the model fit better the data and minimize even more the error.
+
+Therefore, it is necessary to test the performance of each model on some unseen portion of the data.
+
+Nevertheless, using arbitrary approaches to split the data isn't the way to go since this choice may lead to different results especially when working with small datasets.
+
++ Apply the best model and comment the results.
+
+Given that the aim of this TP is not to test other spliting methods, we settle on our previous choice of the 5-predictor model as the optimal one to estimate lcavol.
+
+```{r}
+summary(best_model)
+```
+
+All in all, the model seems to be moderately successful in explaining the variance in the response variable lcavol. However, some coefficients are not statistically significant, suggesting potential room for improvement or reconsideration of the model's predictors.

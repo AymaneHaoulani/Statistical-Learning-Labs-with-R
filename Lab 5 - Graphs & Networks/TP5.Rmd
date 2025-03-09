@@ -1,0 +1,536 @@
+---
+documentclass: article
+papersize: a4
+geometry: top=1.5cm, bottom=2cm, left=1.5cm, right=1.5cm
+fontsize: 11pt
+output:
+  html_document:
+    toc: no
+    df_print: paged
+  pdf_document:
+    extra_dependencies: enumitem
+    number_sections: yes
+    toc: no
+    keep_tex: no
+    includes:
+      in_header: TP5-preamble.tex
+      before_body: TP5-header.tex
+---
+
+<!-- see help at https://bookdown.org/yihui/rmarkdown-cookbook/latex-output.html -->
+
+
+```{r setup, include=FALSE, message=FALSE}
+#see full list >knitr::opts_chunk$get()
+knitr::opts_chunk$set(echo = TRUE, fig.align="center")
+```
+
+### Younes Essafouri, Aymane Haoulani, Aymane El-achab
+
+
+In this practical session, we propose to study the   network of characters in the novel *Les Misérables* written by Victor Hugo. The novel follows the lives and interactions of several characters, particularly the struggles of ex-convict Jean Valjean and his experience of redemption. In this network, nodes represent characters as indicated by the labels and edges connect any pair of characters that appear in the same chapter of the book. The values on the edges are the number of such co-appearances.
+
+#### Part 1: Import and first explorations
+
+The dataset can be imported using the following lines of code:
+
+```{r} 
+library(igraph)
+dat <- read.table("lesmis.txt", header = FALSE, sep = "\t") 
+misgraph <- simplify(graph.data.frame(dat, directed=FALSE))
+```
+
+(a) Visualize the graph using the `plot.igraph` function. What can you observe? The `igraph` package offers the possibility to play with several parameters such as the layout used to display the graph, the size of the nodes, etc. Check the documentation of `igraph` and play with the different options. For instance, you can change the fontsize of the labels of each vertex, the colors of the vertices and of the edges. Explain briefly what is behind the different choices of layout.
+```{r}
+set.seed(3)
+
+par(mar = c(0,0,0,0))
+
+layout_fr <- layout_with_fr(misgraph)
+
+# Plot the graph 
+plot(misgraph, layout=layout_fr,
+     vertex.size=5, 
+     vertex.label.cex=0.6, 
+     vertex.label.dist = 1,
+     vertex.label.color="blue", 
+     edge.color="black", 
+)
+
+
+```
+The graph represents the network of characters from "Les Misérables," where nodes are characters and edges represent co-appearances in the same chapter.
+
+
+**Explanation of Layout Options:**
+
+- **Fruchterman-Reingold (layout_with_fr)**: This is a force-directed layout algorithm that positions nodes in a way that visually separates connected nodes while keeping the graph compact.
+- **Circle (layout_in_circle)**: Nodes are arranged in a circle, which can be useful for graphs with no inherent hierarchical structure.
+- **Tree (layout_as_tree)**: Best for hierarchical data, placing the root node at the center or top and other nodes in levels.
+
+
+(b) Describe general properties of the graph, such as:
+- What is the type of the graph?
+- What are the size and the order of the graph?
+- What are the density and the diameter of the graph?
+- Is the graph complete?
+1. **Type of the Graph:**
+   - The graph is undirected because the edges do not have a direction, meaning the relationship between characters is mutual.
+
+2. **Size and Order of the Graph:**
+   - **Size:** The size of the graph refers to the number of edges = 254 
+   - **Order:** The order of the graph refers to the number of vertices (nodes) = 77
+
+3. **Density and Diameter of the Graph:**
+   - **Density:** The density of a graph is defined as the ratio of the number of edges to the number of possible edges. For an undirected graph, the number of possible edges is given by \( \frac{n(n-1)}{2} \), where \( n \)  is the number of vertices = 0.08680793
+   - **Diameter:** The diameter of a graph is the length of the longest shortest path between any two vertices in the graph = 5
+
+4. **Completeness of the Graph:**
+   - A graph is complete if there is an edge between every pair of vertices. In this context, the graph is not complete because not every character appears with every other character in the same chapter 
+   
+   **Remark:** Note that the function diameter sums the weights for a weighted graph. Use the option `weight=NA` to avoid this issue.
+
+```{r}
+# Type of the graph
+graph_type <- "undirected" # since we used 'directed=FALSE' in the graph creation
+
+# Size and Order
+size <- ecount(misgraph) # Number of edges
+order <- vcount(misgraph) # Number of vertices
+
+# Density
+density <- edge_density(misgraph)
+
+# Diameter
+diameter <- diameter(misgraph, directed=FALSE, weights=NA)
+
+# Check if the graph is complete
+is_complete <- gsize(misgraph) == (order * (order - 1)) / 2
+
+list(
+  Type = graph_type,
+  Size = size,
+  Order = order,
+  Density = density,
+  Diameter = diameter,
+  Complete = is_complete
+)
+
+```
+  
+
+
+(c) What is the purpose of the code here below?
+```{r}
+set.seed(3)
+V(misgraph)$label.cex <- (degree(misgraph)+10)/max(degree(misgraph)) 
+l <- layout_with_fr(misgraph)
+```
+
+1. **V(misgraph)$label.cex <- (degree(misgraph)+10)/max(degree(misgraph)):**
+   - This line adjusts the size of the vertex labels based on their degree. The degree of a vertex is the number of edges connected to it.
+   - `degree(misgraph)` calculates the degree of each vertex.
+   - Adding 10 to the degree ensures that the labels are not too small.
+   - Dividing by the maximum degree normalizes the label sizes, so the largest label size corresponds to the vertices with the highest degree.
+
+2. **l <- layout_with_fr(misgraph):**
+   - This line calculates the layout of the graph using the Fruchterman-Reingold algorithm.
+
+
+```{r}
+par(mar = c(0,0,0,0))
+
+plot(misgraph, layout = l, vertex.size = 3, vertex.label.cex = V(misgraph)$label.cex)
+```
+
+
+### Structure of the Network and Its Specificities
+
+Based on the improved visual representation of the network:
+
+1. **Centrality:**
+   - **Jean Valjean** is clearly the most central character, as indicated by the significantly larger label size. This suggests that he has the highest number of interactions with other characters, making him a key figure in the network.
+
+2. **Clusters:**
+   - The network exhibits distinct clusters or groups of nodes that are more densely connected to each other than to the rest of the network. This suggests subgroups of characters that frequently co-appear in the same chapters. Notable clusters surround characters like **Fantine**, **Marius**, and **Cosette**.
+5. **Node Labels:**
+   - The labels of the nodes vary in size, with larger labels indicating characters with higher degrees (more connections). This helps in quickly identifying key characters in the network. **Jean Valjean** has the largest label, indicating his central role in the novel.
+
+3. **Peripheral Nodes:**
+   - There are several nodes at the periphery of the network with fewer connections. These nodes represent characters that have limited interactions with the rest of the characters in the novel. For example, characters like **Jondrette** and **Mother Plutarch** are on the edges of the network.
+
+4. **Graph Density:**
+   - The network is relatively sparse with many nodes having few edges. This indicates that while there are central characters with many connections, most characters have limited interactions.
+
+5. **Visual Layout:**
+   - The Fruchterman-Reingold algorithm used for the layout makes the clusters and relationships between characters more visible and easier to interpret.
+
+
+
+**Bonus:** Explain with your own words the algorithm used to setup the layout when choosing `layout_with_fr`.
+
+The Fruchterman-Reingold algorithm, used for graph layouts, simulates a physical system where nodes are like charged particles that repel each other, while edges act like springs that pull connected nodes together. This balance of forces spreads the nodes out and pulls related nodes closer, ensuring clear visual separation. 
+
+The algorithm starts with nodes in an initial random placement and iteratively adjusts their positions to minimize the overall energy of the system. As it progresses, the "temperature" of the system is gradually lowered, reducing the extent of node movements until the layout stabilizes.
+
+
+### Part 2: Community Detection
+
+In this part, the goal is to run the different algorithms seen during the course and to compare their partitions.
+
+
+**-- Hierarchical agglomerative clustering**
+
+(a) Recall in a few words how hierarchical agglomerative clustering works.
+
+Hierarchical agglomerative clustering is a method of cluster analysis that seeks to build a hierarchy of clusters. It is a bottom-up approach, where each observation starts in its own cluster, and pairs of clusters are merged as one moves up the hierarchy.
+
+(b) We will be using the `hclust` function which takes as input a dissimilarity matrix. You can use the similarity function available in `R` and take one minus its value to get a dissimilarity matrix. Consider the Jaccard similarity coefficient as the method for calculating the similarity between two vertices. Run the hierarchical clustering algorithm with complete linkage and store the result as `mishclust`.
+
+**Remark:** You will need to cast the dissimilarity matrix as a distance object using `as.dist` for the `hclust` function to work.
+```{r}
+
+# Compute the Jaccard similarity matrix
+similarity_matrix <- similarity(misgraph, method = "jaccard")
+dissimilarity_matrix <- 1 - similarity_matrix
+
+# Convert the dissimilarity matrix to a distance object
+dissimilarity_dist <- as.dist(dissimilarity_matrix)
+
+# Perform hierarchical agglomerative clustering using complete linkage
+mishclust <- hclust(dissimilarity_dist, method = "complete")
+
+
+
+```
+
+(c) Execute and explain what the following code does:
+
+```{r}
+mod = c()
+for (i in 1:10) {
+labels = cutree(mishclust , i)
+mod[i] = modularity(x=misgraph, membership=labels) }
+plot(mod,type="l")
+```
+This code  calculates and plots the modularity for different numbers of communities based on the hierarchical clustering result.
+
+
+In your opinion, what is the most appropriate number of communities to divide the graph?
+
+Based on the modularity plot, the modularity values increase significantly when the number of clusters is between 7 and 10, with the highest values observed around 9 and 10 clusters. This suggests that the graph has a strong community structure when divided into around 9 or 10 communities.
+
+Therefore, the most appropriate number of communities to divide the graph appears to be 9.
+
+(d) Visualize once again the graph and add colors on vertices corresponding to the cluster. To this end, use `V(g)$color = labels` before the plot, where `g` is the name of your graph and labels is the partition of your vertices that seemed the most adequate in question (c). Characterize the communities (proximity, density) and use external information (e.g. the story of the book) to explain your results.
+```{r}
+
+
+# Cut the dendrogram to get 9 clusters
+labels <- cutree(mishclust, 9)
+
+# Assign colors to vertices based on clusters
+colors <- rainbow(9)
+V(misgraph)$color <- colors[labels]
+
+# Plot the graph with colored communities
+plot(misgraph, layout=layout_with_fr(misgraph), 
+     vertex.size=5, 
+     vertex.label=NA,  # Remove labels for better visibility
+     vertex.label.cex=0.8, 
+     vertex.label.color="black", 
+     edge.color="gray", 
+     main="Les Misérables   Network - 9 Communities")
+
+# Plot the graph with labels
+plot(misgraph, layout=layout_with_fr(misgraph), 
+     vertex.size=5, 
+     vertex.label.cex=0.5,  # Smaller labels
+     vertex.label.color="black", 
+     edge.color="gray", 
+     main="Les Misérables   Network - 9 Communities")
+
+# Characterize communities
+community_sizes <- table(labels)
+
+# Calculate and print community densities
+for (i in 1:9) {
+    subgraph <- induced_subgraph(misgraph, which(labels == i))
+    if (community_sizes[i] > 1) {
+        density <- edge_density(subgraph)
+        cat(sprintf("Community %d - Size: %d, Density: %.2f\n", i, community_sizes[i], density))
+    } 
+    # if single node the density is NaN so  we handle this case alone
+    else {
+        cat(sprintf("Community %d - Size: %d, Density: Not Applicable (single node)\n", i, community_sizes[i]))
+    }
+}
+
+```
+The community detection analysis of the "Les Misérables" character network reveals diverse interaction patterns. Community 1, the largest with 55 nodes and a density of 0.10, likely represents the main storyline's broad network, including key characters like Jean Valjean and their extensive interactions. Community 2, with 10 nodes and a high density of 0.87, indicates a tightly-knit group, possibly the revolutionary group involving Marius. Smaller communities, such as Community 3 and Community 4, with low to moderate densities, suggest minor subplots or specific character interactions. Several single-node communities (Communities 5, 8, and 9) and low-density pairs (Communities 6 and 7) represent isolated or minor characters. 
+
+(e) Use the function `plot` directly with `mishclust`. What do you get? Use the option labels with the values of `V(g)$name` to ensure having an interpretable figure.
+```{r}
+
+# Plot the dendrogram with vertex names
+plot(mishclust, labels = V(misgraph)$name, main = "Dendrogram of Les Misérables Characters", xlab = "", sub = "", cex = 0.6)
+```
+The dendrogram of "Les Misérables" characters represents a hierarchical clustering of the characters based on their coappearances in the novel. This dendrogram provides a tree-like diagram that illustrates how characters group together at different levels of similarity. It reveals groups of characters that are closely related in terms of their interactions, where characters that merge at lower heights are more similar and frequently appear together. The height of each branch in the dendrogram represents the dissimilarity between clusters, with lower branches indicating higher similarity and higher branches indicating less similarity. Through this visualization, we gain insights into which characters are more closely connected and form natural clusters within the story.
+
+(f) Run the `hclust` function with average and single linkage. Compare the results in terms of modularity and say which approach seems to give the best results.
+```{r}
+
+# Perform hierarchical agglomerative clustering using complete, average, and single linkage
+mishclust_complete <- hclust(dissimilarity_dist, method = "complete")
+mishclust_average <- hclust(dissimilarity_dist, method = "average")
+mishclust_single <- hclust(dissimilarity_dist, method = "single")
+
+# Function to calculate modularity for different numbers of clusters
+calculate_modularity <- function(hclust_result, graph, max_clusters = 10) {
+  mod = c()
+  for (i in 1:max_clusters) {
+    labels = cutree(hclust_result, i)
+    mod[i] = modularity(graph, membership=labels)
+  }
+  return(mod)
+}
+
+# Calculate modularity for each linkage method
+mod_complete = calculate_modularity(mishclust_complete, misgraph)
+mod_average = calculate_modularity(mishclust_average, misgraph)
+mod_single = calculate_modularity(mishclust_single, misgraph)
+
+# Plot modularity values for comparison
+plot(mod_complete, type="l", col="red", ylim=c(0, max(mod_complete, mod_average, mod_single)), 
+     xlab="Number of Clusters", ylab="Modularity", main="Modularity Comparison")
+lines(mod_average, type="l", col="blue")
+lines(mod_single, type="l", col="green")
+legend("bottomright", legend=c("Complete", "Average", "Single"), col=c("red", "blue", "green"), lty=1)
+
+# Determine the best method based on maximum modularity
+best_complete <- max(mod_complete)
+best_average <- max(mod_average)
+best_single <- max(mod_single)
+
+cat(sprintf("Maximum Modularity (Complete Linkage): %.2f\n", best_complete))
+cat(sprintf("Maximum Modularity (Average Linkage): %.2f\n", best_average))
+cat(sprintf("Maximum Modularity (Single Linkage): %.2f\n", best_single))
+
+```
+
+1. **Complete Linkage :**
+   - The modularity values for complete linkage remain low and relatively constant until about 8 clusters, after which there is a small increase.
+   - The maximum modularity value achieved with complete linkage is lower than that of the other two methods.
+
+2. **Average Linkage :**
+   - The modularity values for average linkage increase significantly starting from 4 clusters, peaking around 7 clusters.
+   - Average linkage achieves the highest modularity values overall, indicating strong community structure detection.
+   - The maximum modularity value is the highest among the three methods, peaking above 0.3.
+
+3. **Single Linkage :**
+   - The modularity values for single linkage start to increase around 5 clusters and continue to rise, peaking around 8-9 clusters.
+   - While single linkage achieves higher modularity values than complete linkage, it does not reach the levels attained by average linkage.
+
+### Conclusion:
+
+**Best Approach:**
+- **Average Linkage**: This method provides the best results in terms of modularity, achieving the highest modularity values among the three linkage methods. The peak modularity value for average linkage indicates a strong detection of community structure, making it the most suitable method for this dataset.
+
+
+-- **Edge betweenness**
+
+(a) Recall in a few words how the definition of edge betweenness and how the clustering algorithm based on this measure works.
+
+ Edge betweenness is a measure of the importance of an edge in a network. It is defined as the number of shortest paths between pairs of nodes that pass through the edge. High edge betweenness indicates that an edge is critical for connecting different parts of the network.
+
+
+**Clustering Algorithm Based on Edge Betweenness:**
+
+- **Concept:** The clustering algorithm, uses edge betweenness to detect communities by progressively removing edges with the highest betweenness.
+- **Steps:**
+  1. **Calculate Edge Betweenness:** Compute the betweenness of all edges in the network.
+  2. **Remove Highest Betweenness Edge:** Identify and remove the edge with the highest betweenness.
+  3. **Recalculate Betweenness:** After each removal, recalculate the betweenness for the remaining edges.
+  4. **Repeat:** Continue removing edges and recalculating betweenness until no edges remain or until a specified number of communities are formed.
+
+- **Result:** The network will break down into smaller, densely connected subgraphs, which represent the communities.
+
+(b) Use the function cluster_edge_betweenness provided in the igraph library to get an object mis_edgeb of the communities class telling how the graph can be partitioned into different communities. Using this object, plot the dendogram associated to the results of the clustering algorithm.
+```{r}
+
+# Perform edge betweenness clustering
+mis_edgeb <- cluster_edge_betweenness(misgraph)
+
+# Plot the dendrogram
+dendPlot(mis_edgeb, mode="hclust", main="Dendrogram of Les Misérables Characters (Edge Betweenness)",cex=0.6)  
+
+# plot the communities on the graph
+plot(misgraph, layout=layout_with_fr(misgraph), 
+     vertex.color=membership(mis_edgeb), 
+     vertex.size=5, 
+     vertex.label=NA,  # Remove labels for better visibility
+     edge.color="black", 
+     main="Les Misérables Network - Edge Betweenness Communities")
+
+```
+
+(c) Execute and explain what the following code is doing:
+```{r}
+f <- function(i){
+mis_graph2 = delete_edges(
+  misgraph,
+  mis_edgeb$removed.edges[seq(length=i)]) 
+  cl = components(mis_graph2)$membership
+  modularity(misgraph,cl)
+}
+
+mods = sapply(0:ecount(misgraph), f)
+mis_graph2<-delete_edges(
+  misgraph,
+  mis_edgeb$removed.edges[seq(length=which.max(mods)-1)])
+```
+This code  is designed to determine the optimal number of edges to remove to achieve the best community structure based on modularity, using the edge betweenness community detection method.
+
+
+Plot the graph once again. What do you observe ? Describe the communities in the same way than for the HAC results. Compare both partitions in terms of modularity.
+```{r}
+plot(mis_graph2, layout=layout_with_fr(mis_graph2), 
+     vertex.size=3, 
+     vertex.label.cex=0.5, 
+     vertex.label.color="black", 
+     edge.color="blue", 
+     main="Les Misérables   Network - Edge Betweenness Partition")
+
+# Get the membership vector indicating the community for each vertex
+labels_edge_betweenness <- membership(mis_edgeb)
+
+# Number of communities identified
+num_communities_edge_betweenness <- length(unique(labels_edge_betweenness))
+
+
+# Characterize communities
+community_sizes_edge_betweenness <- table(labels_edge_betweenness)
+
+
+# Calculate and print community densities
+for (i in 1:num_communities_edge_betweenness) {
+    subgraph <- induced_subgraph(misgraph, which(labels_edge_betweenness == i))
+    if (community_sizes_edge_betweenness[i] > 1) {
+        density <- edge_density(subgraph)
+        cat(sprintf("Community %d - Size: %d, Density: %.2f\n", i, community_sizes_edge_betweenness[i], density))
+    } else {
+        cat(sprintf("Community %d - Size: %d, Density: Not Applicable (single node)\n", i, community_sizes_edge_betweenness[i]))
+    }
+}
+
+# Compare modularities
+modularity_hac <- max(mods)  
+modularity_edge_betweenness <- modularity(mis_edgeb)
+
+cat("Modularity of HAC:", modularity_hac, "\n")
+cat("Modularity of Edge Betweenness:", modularity_edge_betweenness, "\n")
+
+```
+### Description of Communities Identified by Edge Betweenness Clustering
+
+The edge betweenness clustering algorithm identified eleven communities within the "Les Misérables" character network. Community 1, with a size of 10 and a density of 0.27, includes a moderately connected group of characters. Community 2, also with 10 members but a higher density of 0.67, represents a more tightly-knit group. Community 3  with 13 members and a high density of 0.88, indicating very frequent interactions among these characters. Community 4, with 14 members and a density of 0.31, suggests a larger but less densely connected subgroup. Community 5, similar in size to Community 1, has a lower density of 0.22. Community 6, with 11 members and a density of 0.65, is another tightly-knit group. Smaller communities, like Community 7 and Community 10, both consisting of 2 nodes with perfect densities of 1.00, indicate pairs of characters that are exclusively connected to each other. 
+
+### Comparison of HAC and Edge Betweenness Clustering
+
+Interestingly, both hierarchical agglomerative clustering (HAC) and edge betweenness clustering yielded the same modularity score of 0.5380681, indicating that both methods identified community structures of similar strength within the "Les Misérables" character network. Despite this, the nature of the communities identified differs. HAC tends to create broader clusters with a mix of high and low densities, suggesting a variety of interaction levels within each community. In contrast, edge betweenness clustering results in more distinct and often smaller groups with higher internal densities, reflecting tighter-knit subgroups. This highlights that while the overall community structure quality is comparable, the specific groupings and internal connectivity patterns vary between the two methods.
+
+**-- Spectral clustering and the Louvain algorithm**
+
+The functions `cluster_louvain` and `cluster_leading_eigen` from `igraph` correspond to the Louvain algorithm and the spectral algorithm presented in class. Run both algorithms on the graph that you have been using so far. How many communities are found with these two approaches?
+```{r}
+
+# Run the Louvain algorithm
+louvain_communities <- cluster_louvain(misgraph)
+num_louvain_communities <- length(unique(membership(louvain_communities)))
+
+# Run the Spectral clustering algorithm
+spectral_communities <- cluster_leading_eigen(misgraph)
+num_spectral_communities <- length(unique(membership(spectral_communities)))
+
+cat(sprintf("Number of communities detected by Louvain algorithm: %d\n", num_louvain_communities))
+cat(sprintf("Number of communities detected by Spectral clustering algorithm: %d\n", num_spectral_communities))
+
+# plot the graph with communities detected by Louvain algorithm
+plot(misgraph, layout=layout_with_fr(misgraph), 
+     vertex.color=membership(louvain_communities), 
+     vertex.size=5, 
+     vertex.label=NA,  
+     edge.color="gray", 
+     main="Les Misérables   Network - Louvain Communities")
+
+#  plot the graph with communities detected by Spectral clustering algorithm
+plot(misgraph, layout=layout_with_fr(misgraph), 
+     vertex.color=membership(spectral_communities), 
+     vertex.size=5, 
+     vertex.label=NA, 
+     edge.color="gray", 
+     main="Les Misérables   Network - Spectral Communities")
+
+# Get the number of communities
+num_communities_louvain <- length(unique(membership(louvain_communities)))
+
+# Calculate modularity
+modularity_louvain <- modularity(louvain_communities)
+
+# Get the number of communities
+num_communities_spectral <- length(unique(membership(spectral_communities)))
+
+# Calculate modularity
+modularity_spectral <- modularity(spectral_communities)
+
+cat("Spectral Clustering Modularity:", modularity_spectral, "\n")
+cat("Louvain Algorithm Modularity:", modularity_louvain, "\n")
+
+```
+
+**-- Conclusion**
+
+Compare all the algorithms (HAC, Louvain, spectral clustering, and edge betweenness). The comparison should include a comparison in terms of modularities and some interpretation of the differences between the communities on the basis of other available variables.
+
+
+In our analysis of the "Les Misérables" character network, we employed four different community detection algorithms: hierarchical agglomerative clustering (HAC), edge betweenness clustering, the Louvain algorithm, and spectral clustering. Each method provided valuable insights into the structure of the network, with varying numbers of communities and modularity scores.
+
+#### Hierarchical Agglomerative Clustering (HAC)
+
+- **Number of Communities:** 9
+- **Modularity:** 0.5380681
+- **Characteristics:** HAC tends to create larger communities with a mix of high and low densities. The largest community includes many characters with sparse interactions, while smaller communities have higher densities, indicating tightly-knit groups.
+
+#### Edge Betweenness Clustering
+
+- **Number of Communities:** 11
+- **Modularity:** 0.5380681
+- **Characteristics:** Edge betweenness clustering results in more distinct, smaller groups with higher internal densities. This method effectively identifies subgroups and pairs of characters with direct interactions, highlighting tighter-knit subgroups within the network.
+
+#### Louvain Algorithm
+
+- **Number of Communities:** 6
+- **Modularity:** 0.5582724
+- **Characteristics:** The Louvain method is efficient at optimizing modularity and tends to find a moderate number of well-defined communities. This approach resulted in fewer, larger communities with strong internal connectivity.
+
+#### Spectral Clustering
+
+- **Number of Communities:** 8
+- **Modularity:** 0.5322711
+- **Characteristics:** Spectral clustering uses eigenvectors of matrices derived from the graph and is effective at identifying community structures. It produced a moderate number of communities, balancing between larger and smaller groups, with a slightly lower modularity score compared to the other methods.
+
+### Comparison
+
+- **Modularity:**
+  - The Louvain algorithm achieved the highest modularity score (0.5582724), indicating the strongest community structure.
+  - HAC and edge betweenness clustering both produced the same modularity score (0.5380681), reflecting well-defined but more granular communities.
+  - Spectral clustering had the lowest modularity score (0.5322711), suggesting slightly weaker community definitions compared to the other methods.
+
+- **Number of Communities:**
+  - HAC and edge betweenness clustering identified a higher number of communities (9 and 11, respectively), indicating more detailed partitions.
+  - The Louvain algorithm found fewer communities (6), but with higher modularity, suggesting these communities are more cohesive.
+  - Spectral clustering identified an intermediate number of communities (8), offering a balance between the granularity of HAC and edge betweenness clustering and the larger communities found by the Louvain algorithm.
+
+### Final Conclusion
+
+Each community detection algorithm provided a unique perspective on the "Les Misérables" character network. The Louvain algorithm stood out with the highest modularity and fewer communities, making it suitable for applications requiring clear and strong community structures. HAC and edge betweenness clustering offered more granular insights, useful for detailed analysis of smaller subgroups. Spectral clustering provided a balanced approach, identifying a moderate number of communities with reasonable modularity. 

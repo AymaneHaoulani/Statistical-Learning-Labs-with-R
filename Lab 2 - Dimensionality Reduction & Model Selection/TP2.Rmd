@@ -1,0 +1,466 @@
+---
+documentclass: article
+papersize: a4
+geometry: top=1.5cm, bottom=2cm, left=1.5cm, right=1.5cm
+fontsize: 11pt
+output:
+  html_document:
+    toc: no
+    df_print: paged
+  pdf_document:
+    extra_dependencies: enumitem
+    number_sections: yes
+    toc: no
+    keep_tex: no
+    includes:
+      in_header: TP2-preamble.tex
+      before_body: TP2-header.tex
+---
+
+<!-- see help at https://bookdown.org/yihui/rmarkdown-cookbook/latex-output.html -->
+
+```{r setup, include=FALSE, message=FALSE}
+#see full list >knitr::opts_chunk$get()
+knitr::opts_chunk$set(echo = TRUE, fig.align="center")
+```
+
+### Younes Essafouri, Aymane Haoulani, Aymane El-achab
+
+
+The goal of this practical session is to use genetic markers to predict the geographical origin of a set of indians from South, Central, and North America. We propose to build two regression linear models to predict the latitude and longitude of an individual based on its genetic markers. Because the number of markers ($p = 5709$) is larger than the number of samples ($N = 494$), the predictors of the regression model will be the outputs of a principal component analysis (PCA) performed on the genetic markers. A genetic marker is encoded 1 if the individual has a mutation, 0 elsewhere.
+
+\\section\*{\$\\blacktriangleright\$\~Exercise 1: Data}
+
+Download the dataset \code{NAm2.txt} from Chamilo. Each row corresponds to an individual and the columns have explicit names. The third column contains the names of the tribes to which each individual pertains. Columns 7 and 8 contain the latitude and the longitude and from Column 9 onwards are genetic markers.
+
+Describe what the code below does and how it works (you can take a look at \code{help(unique)}). You should get the same figure as the one shown below.
+
+```{r figs, fig.cap="\\label{fig:figure-indians}Populations of indians from America"}
+NAm2 = read.table("NAm2.txt", header=TRUE)
+names=unique(NAm2$Pop)
+npop=length(names)
+NAm2
+
+#The number of distinct populations present in the data set
+print(npop)
+
+coord=unique(NAm2[,c("Pop","long","lat")]) #coordinates for each pop
+colPalette=rep(c("black","red","cyan","orange","brown","blue","pink",
+                 "purple","darkgreen"),3)
+                 
+pch=rep(c(16,15,25),each=9)
+plot(coord[,c("long","lat")],pch=pch,col=colPalette,asp=1) 
+# asp allows to have the correct ratio between axis longitude 
+# and latitude, thus the map is not deformed     
+legend("bottomleft",legend=names,col=colPalette,lty=-1,
+       pch=pch,cex=0.75,ncol=2,lwd=2)  
+library(maps); map("world",add=T)                                               
+```
+
+The aim of this portion of the code is to plot on a map the longitude and the latitude of each one of the populations present in the data set with no redundancy. And in order to do so, the following steps were needed :
+
+-   Determine the non redundant lists of the populations and their coordinates thanks to the unique() method.
+
+-   Figure out a way to represent distinctively each one of the npop(=27) elements. In this case, 9 different colours and 3 characters were chosen to describe the whole 27 populations.
+
+**Remark**: The last line of the code above works in the ENSIMAG computers because the package `maps` has been installed beforehand. To install it in your own computer you should use `install.packages("maps")`.
+
+\\section\*{\$\\blacktriangleright\$\~Exercise 2: Multiple linear regression}
+
+Using all genetic markers as predictors, use a multiple linear regression model to predict the longitude of each individual. You may need to create a new `data.frame` containing the relevant variables, i.e.: `NAaux = NAm2[,-c(1:7)]`. What happens? Why?
+
+```{r}
+NAaux <- NAm2[,-c(1:7)]
+longitudeRegModel <- lm(NAaux$long~., data=NAaux)
+#summary(longitudeRegModel)
+```
+
+**Remark**: You should relate the results with the fact that $\text{rank}(\mathbf{X}) < p$, where $\mathbf{X} \in \mathbb{R}^{N \times p}$ is the data matrix.
+
+It is clear thanks to the summary() method that R fails to compute the coefficients of the multiple linear regression.
+
+* 1st justification : 
+
+This result was expected since we have in this case : $N<p$. Therefore and from a matricial standpoint, the data matrix $X$ verifies : $\text{rank}(\mathbf{X}) < p$. 
+
+Moreover, we know that for a model : $Y=X\beta+\varepsilon$, the minimizer of the error is : $\hat{\beta}=(^{t}XX)^{-1}.^{t}XY$
+
+This quantity cannot be computed if $^{t}XX$ is not invertible which is the case.
+
+* 2nd justification: 
+
+Let's see the problem as the resolution of a linear system by considering the rows of this equation : $Y=X\beta+\varepsilon$.
+
+The number of the unknown variables $p$ exceeds the number of equations $N$.
+
+Therefore, the linear system is not resolvable.
+
+
+\\section\*{\$\\blacktriangleright\$\~Exercise 3: Principal component analysis}
+
+(a) Explain in a few words the main concepts and ideas underlying principal component analysis (PCA).
+
+PCA is a pre-processing technique used in the case of an unsupervised linear problem on centered data in order to perform dimensionality reduction while trying to preserve the maximum amount of information contained in the initial matrix by minimizing the reconstruction error (<=> maximizing the variance of the projections).
+This technique can be useful in several cases:
+
+* When the data matrix is not invertible (our current situation) : Thanks to PCA, we will be able to reduce the dimensionality of the data, making subsequent analyzes (regression for instance) possible.
+
+* Better Visualization: PCA is also commonly used for visualization purposes, especially when dealing with multiple predictors.It allows us to visualize the data in a lower-dimensional space (2D or 3D for example), making it easier to understand and interpret complex relationships among variables.
+
+* Mitigation of the curse of dimensionality as refered to in the CMs 3&4...
+
+(b) Use command `prcomp` to apply PCA on the data matrix $\mathbf{X}$. Remember that the features of interest in $\mathbf{X}$ are only the genetic markers for each individual. Store the results in a object called `pcaNAm2`. Should we use the argument `scale` in `prcomp`?
+
+Since the values of the genetic markers are directly comparable (0,1) there is no need to set the scale argument to TRUE.
+
+```{r}
+genetic_markers_matrix <- NAm2[,-c(1:8)]
+pcaNAm2 <- prcomp(genetic_markers_matrix,center=TRUE, scale=FALSE)
+pcaNAm2_scaled <- prcomp(genetic_markers_matrix,center=TRUE, scale=TRUE)
+```
+
+(c) The code below plots the populations on the first two principal axes of PCA. Interpret and compare the results of the PCA using \code{scale=T} versus \code{scale=F} and explain why they are different.
+
+```{r}
+caxes=c(1,2)
+
+# Centered data
+plot(pcaNAm2$x[,caxes],col="white")
+for (i in 1:npop) 
+{
+	lines(pcaNAm2$x[which(NAm2[,3]==names[i]),caxes], type="p",
+		col=colPalette[i],pch=pch[i])	
+	legend("top",legend=names,col=colPalette,
+		   lty=-1,pch=pch,cex=0.75,ncol=3,lwd=2,title = "Scale = FALSE")                    
+}
+
+# Centered & standardized data 
+plot(pcaNAm2_scaled$x[,caxes],col="white")
+for (i in 1:npop) 
+{
+	lines(pcaNAm2_scaled$x[which(NAm2[,3]==names[i]),caxes], type="p",
+		col=colPalette[i],pch=pch[i])	
+	legend("top",legend=names,col=colPalette,
+		   lty=-1,pch=pch,cex=0.75,ncol=3,lwd=2,title = "Scale = TRUE")                    
+}
+library(maps)                                              
+```
+We observe that centering the data while setting the scale parameter to 'FALSE' gives a better separability of the data. In fact, we can see clearly that the individuals of Ache share similar features with each other and are different from the Surui population for instance and from the rest of the tribes.
+Whereas setting the scaling parameter to 'TRUE' resulted in a plot where little to no information can be drawn from the figure since the majority of the data points fall sensitively within the same area.
+
+Let's explain things now from a mathematical standpoint using the following script:
+```{r}
+# Extract variance of each of the first 6 components
+variance <- (pcaNAm2$sdev^2)[1:6]
+variance_scaled <- (pcaNAm2_scaled$sdev^2)[1:6]
+
+# Plot the variance of each component for both cases
+barplot(variance, names.arg = paste("PC", 1:length(variance)),
+        xlab = "Principal Component", ylab = "Variance",
+        main = "Variance of Principal Components : Scale=FALSE")
+barplot(variance_scaled, names.arg = paste("PC", 1:length(variance_scaled)),
+        xlab = "Principal Component", ylab = "Variance",
+        main = "Variance of Principal Components : Scale=TRUE")
+```
+It seems like in the case of scale='TRUE' that component 1 explains way more the variance in the data compared to the other components whereas they contribute fairly to the variance in the case of scale='FALSE'.
+
+Since the values of the data matrix $X$ are comparable and are of the same nature (genomic data), there is no need to standardize it since this would harm the real contribution of each feature in the dimensionality reduction process.
+
+All in all, this shows that it is important to consider the nature and particularity of the data before applying the common practices of pre-processing on it (in this case setting the scale parameter to TRUE) .
+
+(d) Which percentage of variance is captured by the first two principal components? How many principal components would you keep if you would like to represent the genetic markers using a minimal number of principal components?
+
+```{r}
+# Compute the percentage of variance captured by PC1-2
+variance <- pcaNAm2$sdev^2
+ratio <- sum(variance[1:2])/sum(variance)
+cat("The first two principal components capture",ratio*100,"% of the variance\n")
+
+# Compute the optimal amount of components
+# We choose 95% of the total variance as the sufficient ratio
+target <- 0.95
+cumulative_ratio <- cumsum(variance)/sum(variance)
+sweet_spot <-  which(cumulative_ratio > target)[1]
+cat("The minimum number of principal components that we can use with a 5% error ratio on the vatiance is :",sweet_spot)
+
+```
+\\section\*{\$\\blacktriangleright\$\~Exercise 4: Principal components regression (PCR)}
+
+(a) Predict the latitude and the longitude using the scores of the first 250 PCA axes. Denote the results of these regressions by `lmlat` et `lmlong`.
+
+```{r}
+X <- NAm2[,-c(1:8)]
+
+long <- NAm2$long
+lat <- NAm2$lat
+
+# Perform PCA on the data
+pca <- prcomp(X,center=TRUE, scale=FALSE)
+components_scores <- pca$x[,1:250]
+
+
+# Multiple linear regression on the components
+long_data <- as.data.frame(cbind(long=long,components_scores))
+lat_data <- as.data.frame(cbind(lat=lat,components_scores))
+
+lmlong <- lm(long~.,data=long_data)
+lmlat <- lm(lat~.,data=lat_data)
+
+#summary(pcr_lat_model)
+
+```
+
+Plot the graph of predicted spatial coordinates using the code:
+
+```{r}
+plot(lmlong$fitted.values,lmlat$fitted.values,col="white",asp=1)
+for (i in 1:npop) 
+{
+	lines(lmlong$fitted.values[which(NAm2[,3]==names[i])],
+		lmlat$fitted.values[which(NAm2[,3]==names[i])],
+		type="p", col=colPalette[i],pch=pch[i])
+}
+legend("bottomleft",legend=names,col=colPalette,lty=-1,
+	pch=pch, cex=.75,ncol=3,lwd=2)
+map("world",add=T)
+library(maps)
+```
+
+Compare your results with the map of Figure \ref{fig:figure-indians}. What can you see? Does this map illustrate too optimistically or too pessimistically the ability to find geographical origin of individuals outside the database from its genetic markers?
+
+This map illustrates too optimistically the ability to find geographical origin of individuals outside the database.
+In fact, we didn't split the data into a training subset and a testing one before performing PCA. Therefore the prediction error we computed is nothing but the training error which isn't the only criteria we consider while selecting models. 
+In other words, the model may appear to perform well in capturing the underlying structure of the data, but without validation on unseen data, there's a risk of overfitting, where the model learns noise in the training data rather than meaningful patterns. 
+
+(b) We choose to quantify the error of the linear regression model using the mean distance between real and predicted coordinates (of source populations). Be careful, use the orthodromic distance, (\`\`great circle distance''). Calculate the mean error of the previous model built using (the first) 250 principal axes.
+
+```{r}
+# Training error 
+library(fields)
+  # Perform the predictions
+predicted_lat <- predict(lmlat)
+predicted_long <- predict(lmlong)
+
+# Compute the error
+distance_vector2 <- c()
+for(i in 1:length(predicted_lat)){
+  predicted_coord <- matrix(c(predicted_lat[[i]],predicted_long[[i]]), ncol = 2, byrow = TRUE)
+  actual_coord <- matrix(c(lat[[i]],long[[i]]), ncol = 2, byrow = TRUE)
+  distance_vector2 <- c(distance_vector2,rdist.earth(predicted_coord,actual_coord, miles = FALSE))
+}
+cat("The mean training error of the model is",mean(distance_vector2),"km")
+```
+**Remark**: Look at `?rdist.earth` for a function for that calculates the orthodromic distance. Consider using option (`miles = F`). Note that this function is in package `fields` that you should load using `library("fields")`.
+
+\\section\*{\$\\blacktriangleright\$\~Exercise 5: PCR and cross-validation}
+
+Our goal now is to build the best predictive model to predict individual geographical coordinates. We will use 10-fold cross-validation to helps us choose the number (`naxes`) of principal axes that we should keep.
+
+(a) Recall in a few words the principle of cross-validation. Explain why this procedure is useful when building a predictive model. We will divide the dataset into ten subsets, which will be used in turns as validation sets. Create a vector set that contains, for each individual, the index of the subset to which he/she belongs. You can randomly build this vector, with the same number of individuals in each validation set.
+
+Cross-validation is used to assess the performance of a predictive model by dividing the dataset into multiple subsets, training the model on some of these subsets, and testing it on the remaining subsets (validation). This process is repeated multiple times, allowing for a more reliable estimation of the model's performance and its generalization ability to unseen data. It's useful because it helps to evaluate how well a model will perform on new data and can help identify issues like overfitting or underfitting. It is worth reminding that a test set should still be held out for final evaluation.
+
+```{r}
+#set.seed(42)
+shuffled_indices <- sample(1:494, replace = FALSE)
+
+individual_to_subset <- rep(0, nrow(NAm2))
+fold_size <- floor(nrow(NAm2)/10)
+
+for (i in 1:10) {
+  current_fold_indices <- shuffled_indices[((i - 1) * fold_size + 1):(i * fold_size)]
+  individual_to_subset[current_fold_indices] <- i
+}
+
+# We assign each of the remaining indices randomly to a subset 
+remaining_indices <- which(individual_to_subset==0)
+individual_to_subset[remaining_indices] <- sample(1:10, length(remaining_indices),replace = FALSE)
+
+cat("The number of individuals forming each fold is: \n")
+table(individual_to_subset)
+```
+
+(b) We first assess the quality of the PCR fit for `naxes=4`. For this, you should proceed as follows:
+
+<!-- -->
+
+1.  Create an empty dataframe `predictedCoord` with 2 columns `("longitude", "latitude")` and as many rows as there are individuals.
+2.  Using as predictors the scores of the first 4 PCA axes, explain `latitude` and `longitude` using the individuals who do not belong to the validation set number 1.
+3.  Using the estimated model, predict `latitude` and `longitude` for individuals belonging to the validation set number 1. Store the predicted coordinates into `predictCoord` (in rows corresponding to the individual indices, in order to be able to compare real and predicted coordinates). Be careful, the function `predict` needs a `data.frame` of input points and they should be different from those used to fit the model.
+4.  Repeat for all the other validation sets. At the end, the matrix `predictCoord` must be full. Calculate the prediction error as in Exercise 4(b).
+
+<!-- -->
+
+```{r}
+#1st step
+predictedCoord <- data.frame(latitude = numeric(nrow(NAm2)),longitude = numeric(nrow(NAm2)))
+
+CV_iteration <- function(validation_subset,predictedCoord,naxes){
+#2nd step
+  # Perform PCA on training subsets different than the validation subset
+validation_indices <- which(individual_to_subset==validation_subset) 
+X <- NAm2[,-c(1:8)]
+X_train_CV <- X[-validation_indices,]
+long_train_CV <- NAm2[-validation_indices,8]
+lat_train_CV <- NAm2[-validation_indices,7]
+      # Re-centering of X_train and X_validate before performing PCA
+X_validate_CV <- X[validation_indices,]
+X_validate_CV <- X_validate_CV - colMeans(X_train_CV)
+X_train_CV <- X_train_CV-colMeans(X_train_CV)
+long_validate_CV <- NAm2[validation_indices,8]
+lat_validate_CV <- NAm2[validation_indices,7]
+      # Extraction of the training scores
+pca_train_CV <- prcomp(X_train_CV,center=TRUE, scale=FALSE)
+training_components_scores_CV <- pca_train_CV$x[,1:naxes]
+  # Definition of the models
+long_training_data_CV <- as.data.frame(cbind(long=long_train_CV,training_components_scores_CV))
+lat_training_data_CV <- as.data.frame(cbind(lat=lat_train_CV,training_components_scores_CV))
+lmlongCV <- lm(long~.,data=long_training_data_CV)
+lmlatCV <- lm(lat~.,data=lat_training_data_CV)
+
+#3rd step
+  # X_validate_CV has already been centered using mean(X_train_CV)
+  # Now, we need to project X_validate_CV using the training projector matrix
+Z_validate_CV <- predict(pca_train_CV, newdata = X_validate_CV)
+  # Perform the predictions
+      # Validation data
+predicted_long_CV <- predict(lmlongCV,newdata = as.data.frame(Z_validate_CV))
+predicted_lat_CV <- predict(lmlatCV,newdata = as.data.frame(Z_validate_CV))
+predictedCoord[validation_indices,"longitude"] <- predicted_long_CV
+predictedCoord[validation_indices,"latitude"] <- predicted_lat_CV
+      # Training data (will be used for the following question)
+training_error <- c()
+training_pred_long_CV <- predict(lmlongCV)
+training_pred_lat_CV <- predict(lmlatCV)
+for(i in 1:length(training_pred_long_CV)){
+  predicted_coord <- matrix(c(training_pred_lat_CV[[i]],training_pred_long_CV[[i]]), ncol = 2, byrow = TRUE)
+  actual_coord <- matrix(c(lat_train_CV[[i]],long_train_CV[[i]]), ncol = 2, byrow = TRUE)
+  training_error <- c(training_error,rdist.earth(predicted_coord,actual_coord, miles = FALSE))
+}
+meanTrainingError <- mean(training_error)
+return(list(predictedCoord=predictedCoord,meanTrainingError=meanTrainingError))
+}
+
+#4th step
+for(i in 1:10){
+  object <- CV_iteration(i,predictedCoord,4)
+  predictedCoord <-object$predictedCoord
+}
+  #Prediction error
+distance_vector<- c()
+for(i in 1:494){
+  distance_vector <- c(distance_vector,rdist.earth(predictedCoord[i,],NAm2[i,c(7,8)], miles = FALSE))
+}
+cat("The value of the mean prediction error for naxes=4 is:",mean(distance_vector))
+
+```
+(c) Repeat the steps of 5(b) but changing `naxes` between 2 and 440 in steps of 10. Plot the prediction errors and the error obtained on the training set versus the number of principal components. **Remark**: You might need to use `seq(2, 440, by=10)`
+
+```{r}
+prediction_error <- c()
+final_training_error<- c()
+
+# We loop over the possible number of principle components
+for(naxes in seq(2,440,by=10)){
+  predictedCoord <- data.frame(latitude = numeric(nrow(NAm2)),longitude = numeric(nrow(NAm2)))
+  folds_training_errors<- c()
+  # Loop over the different folds (=10)
+  for(i in 1:10){
+  current_iteration_object <- CV_iteration(i,predictedCoord,naxes)
+  predictedCoord <-current_iteration_object$predictedCoord
+  folds_training_errors <- c(folds_training_errors,current_iteration_object$meanTrainingError)
+  }
+    # Training error (mean of the different folds training errors)
+  final_training_error <- c(final_training_error,mean(folds_training_errors))
+    # Prediction error
+  distance_vector<- c()
+  for(i in 1:494){
+  distance_vector <- c(distance_vector,rdist.earth(predictedCoord[i,],NAm2[i,c(7,8)], miles = FALSE))
+  }
+  prediction_error <- c(prediction_error,mean(distance_vector))
+}
+
+cat("The optimal number of principal components is : ", which.min(prediction_error))
+
+plot(seq(2,440,by=10), prediction_error, type = "b", col = "blue", ylim = range(c(prediction_error, final_training_error)), xlab = "Number of principal components", ylab = "Error", main = "Training and Prediction Errors")
+points(seq(2,440,by=10), final_training_error, type = "b", col = "red")
+legend("topright", legend = c("Prediction Error", "Training Error"), col = c("blue", "red"), pch = 1)
+
+```
+
+(d) Which model would you keep? What is the prediction error for this model? Compare it with the training error. Plot the predicted coordinates on a map as in Exercise 4.
+
+We observe that prediction and training errors decrease with the number of principal components involved.
+This result is expected since adding more principal components would explain a higher percentage of the total variance leading finally to a better projection of the initial predictors. 
+Nevertheless, in order to avoid overfitting, it wouldn't be the best idea to go with the configuration leading to a minimum value in terms of prediction error since it corresponds to a low value in terms of training error as well. 
+We decided to introduce a threshold of 3% above the minimum error value to identify an optimal combination of principal components. This helps to mitigate the risk of overfitting by selecting a model that balances performance on the training data with generalization to unseen data (validation). 
+Therefore, the optimal combination is the one that leads to the closest error value to this limit.
+
+```{r}
+# We set a 3% (~20km) limit from the minimum value
+optimal <- which(prediction_error<min(prediction_error)*1.03)[1]
+cat("The optimal number of principal components is :",(optimal-1)*10+2,"\n")
+cat("The prediction error in this case is : ",prediction_error[optimal],"\n")
+cat("The value of the training error is: ",final_training_error[optimal],"\n")
+```
+As expected, the training error is smaller than the testing error.
+
+```{r}
+
+predictedCoord <- data.frame(latitude = numeric(nrow(NAm2)),longitude = numeric(nrow(NAm2)))
+
+for(i in 1:10){
+  object <- CV_iteration(i,predictedCoord,(optimal-1)*10+2)
+  predictedCoord <-object$predictedCoord
+}
+
+plot(predictedCoord$longitude,predictedCoord$latitude,col="white",asp=1)
+for (i in 1:npop) 
+{
+	print(names[i])
+	lines(predictedCoord$longitude[which(NAm2[,3]==names[i])],
+		predictedCoord$latitude[which(NAm2[,3]==names[i])],
+		type="p", col=colPalette[i],pch=pch[i])
+}
+legend("bottomleft",legend=names,col=colPalette,lty=-1,
+	pch=pch, cex=.75,ncol=3,lwd=2)
+map("world",add=T)
+library(maps)
+
+```
+The results are satisfying.
+
+
+\\section\*{\$\\blacktriangleright\$\~Exercise 6: Conclusion}
+
+Propose a conclusion to the study. You can write a paragraph about the quality of predictors versus the number of factors, possible improvements to the approach, etc. Note that we expect a thorough presentation of the final predictive model as well as an interpretation of it, not simply a bunch of `R` code lines.
+
+
+Conclusion:
+After applying PCR using Cross-Validation, we decided that the optimal configuration is the following:
+```{r}
+cat("The optimal number of principal components is :",(optimal-1)*10+2,"\n")
+cat("The prediction error in this case is : ",prediction_error[optimal],"\n")
+cat("The value of the training error is: ",final_training_error[optimal],"\n")
+```
+These values are acceptable since the dataset includes information about individuals from all over the american continents.
+
+And here are some remarks about the study that was conducted:
+
++ Since the data is ordered by tribes, it would be better to split the data as follows :  
+```{r}
+valid <- (1:nrow(X)) %% 5 == 0
+X_train <- X[!valid,]
+X_test <- X[valid,]
+```
+rather than random shuffling of the indices. In fact, the random process can increase/decrease the presence of some tribes in the testing subset.
+Or we can shuffle the dataset instead at the very begining.
+
++ We need to select the most relevant genetic markers since people of different tribes may share similar traits:
+```{r}
+cat("The number of insignificant genetic markers is : ",length(which(colSums(genetic_markers_matrix)<10)))
+```
+We observe that nearly half of the predictors are insignificant (different for 10 people tops among 494). This way, we improve the quality of the predictors, reduce the dimensionality of the data and optimize execution times of the different algorithms.
+
++ We may also consider the country column as a predictor as well (qualitative variable).
+
